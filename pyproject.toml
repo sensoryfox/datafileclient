@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=65", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sensory-datafile"
+version = "0.1.0"
+description = "Asynchronous facade for PostgreSQL and MinIO"
+readme = "README.md"
+requires-python = ">=3.10"
+
+# --- Основные зависимости (эквивалент requirements.txt) ---
+dependencies = [
+    "sqlalchemy",
+    "asyncpg",
+    "minio",
+    "pydantic",
+    "pydantic-settings",
+    "alembic",
+    "python-dotenv",
+    "aiofiles",
+    "typer", # CLI - часть функционала пакета
+]
+
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "pytest-cov",
+    "testcontainers",
+    "faker",
+    "black",
+    "isort",
+    "mypy",
+]
+
+[tool.setuptools.package-data]
+"data_client" = ["py.typed"]
+
+[tool.black]
+line-length = 100
+
+[tool.isort]
+profile = "black"
+line_length = 100
+
+[tool.setuptools.packages.find]
+where = ["src"]

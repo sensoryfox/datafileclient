@@ -1,0 +1,24 @@
+# Файл: requirements.txt
+# ----------------------
+# Основные зависимости, необходимые для работы data-client.
+# Устанавливаются в production-окружении.
+#
+# Установка: pip install -r requirements.txt
+
+# --- База данных (PostgreSQL) ---
+sqlalchemy        # Основная ORM
+asyncpg           # Асинхронный драйвер для PostgreSQL
+
+# --- Хранилище (MinIO) ---
+minio             # Официальный SDK для MinIO
+
+# --- Валидация и конфигурация ---
+pydantic
+pydantic-settings
+
+# --- Управление миграциями БД ---
+alembic
+
+# --- Утилиты ---
+python-dotenv     # Для чтения .env файлов
+aiofiles          # Для асинхронной работы с файлами (хорошая практика)

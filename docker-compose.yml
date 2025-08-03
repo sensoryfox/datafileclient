@@ -1,0 +1,47 @@
+# docker-compose.yml
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15 # <--- Ваш легковесный образ
+    ports:
+      - "5433:5432"
+    environment:
+      # Используем гибкую конфигурацию из v2, которая читает .env файл
+      POSTGRES_DB: ${PG_DB:-documents}
+      POSTGRES_USER: ${PG_USER:-postgres}
+      POSTGRES_PASSWORD: ${PG_PASSWORD:-postgres}
+    volumes:
+      - pg_data:/var/lib/postgresql/data # <--- Возвращаем для сохранения данных между перезапусками
+    healthcheck:
+      # Используем более надежный healthcheck из v1
+      test: ["CMD-SHELL", "pg_isready -U ${PG_USER:-postgres} -d ${PG_DB:-documents}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      # Гибкая конфигурация из v2
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin}
+    volumes:
+      - minio_data:/data # <--- Возвращаем для сохранения данных между перезапусками
+    healthcheck:
+      # Надежный healthcheck из v1
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+      start_period: 10s
+
+# Определяем именованные volumes, чтобы Docker ими управлял
+volumes:
+  pg_data:
+  minio_data:
