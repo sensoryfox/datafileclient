@@ -3,23 +3,23 @@ import hashlib
 import os
 from uuid import UUID, uuid4
 
-from .repositories.pg_repository import PostgresRepository
+from .repositories.pg_repositoryMeta import MetaDataRepository
+from .repositories.pg_repositoryLine import LineRepository
 from .repositories.minio_repository import MinioRepository
 from .models.document import DocumentCreate, DocumentInDB, Line
 from .exceptions import DocumentNotFoundError, DatabaseError, MinioError
 
 logger = logging.getLogger(__name__)
 
-
 class DataClient:
     """
     Единая точка доступа для бизнес-логики.
     """
 
-    def __init__(self, pg_repo: PostgresRepository | None = None, minio_repo: MinioRepository | None = None):
-        self.pg = pg_repo or PostgresRepository()
+    def __init__(self, meta_repo: MetaDataRepository | None = None, line_repo: LineRepository | None = None, minio_repo: MinioRepository | None = None):
+        self.metarepo = meta_repo or MetaDataRepository()
+        self.linerepo = line_repo or LineRepository()
         self.minio = minio_repo or MinioRepository()
-
 
     async def put_object(self, object_name: str, data: bytes, content_type: str | None = None):
         """Универсальный метод для загрузки объекта в MinIO."""
@@ -48,7 +48,7 @@ class DataClient:
             md_object_path=None,
         )
         try:
-            saved = await self.pg.save(doc_in_db)
+            saved = await self.metarepo.save(doc_in_db)
             return saved
         except DatabaseError as e:
             # Rollback: удаляем из MinIO
@@ -56,23 +56,23 @@ class DataClient:
             raise
     
     async def get_file(self, doc_id: UUID) -> bytes:
-        doc = await self.pg.get(doc_id)
+        doc = await self.metarepo.get(doc_id)
         if not doc:
             raise DocumentNotFoundError
         return await self.minio.get_object(doc.object_path)
 
     async def delete_file(self, doc_id: UUID):
-        doc = await self.pg.get(doc_id)
+        doc = await self.metarepo.get(doc_id)
         if not doc:
             raise DocumentNotFoundError
         await self.minio.remove_object(doc.object_path)
-        await self.pg.delete(doc_id)
+        await self.metarepo.delete(doc_id)
     
     async def generate_download_url(self, doc_id: UUID, expires_in: int = 3600) -> str:
         """
         Создает временную ссылку для скачивания файла, связанного с документом.
         """
-        doc = await self.pg.get(doc_id)
+        doc = await self.metarepo.get(doc_id)
         if not doc:
             raise DocumentNotFoundError(f"Document with id {doc_id} not found.")
         
@@ -83,12 +83,12 @@ class DataClient:
     async def save_document_lines(self, doc_id: UUID, lines: list[Line]):
         """Сохраняет разобранные строки документа в PostgreSQL."""
         logger.info(f"Saving {len(lines)} lines for document {doc_id}")
-        await self.pg.save_lines(doc_id, lines)    
+        await self.linerepo.save_lines(doc_id, lines)    
     
     async def update_lines(self, doc_id: UUID, block_id: str, new_content: str):
         """Обновляет markdown-строку, добавляя описание изображения."""
         logger.info(f"Updating alt text for block {block_id} in document {doc_id}")
-        await self.pg.update_lines(doc_id, block_id, new_content)
+        await self.linerepo.update_lines(doc_id, block_id, new_content)
         
     # ――― helpers ――― #
     @staticmethod
