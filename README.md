@@ -172,7 +172,8 @@ python -m src.data_client.cli check-connections
 ```
 *   **Выполнить начальную настройку (создать бакет, применить миграции):**
 ```bash
-python -m src.data_client.cli init-all
+python -m src.data_client.cli init_db
+python -m src.data_client.cli init_storage
 ```
 ## 🧪 Тестирование
 

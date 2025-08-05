@@ -1,10 +1,13 @@
 from pydantic import BaseModel
+from uuid import UUID
 
 class Line(BaseModel):
-    # Поля, которые напрямую пишутся в DocumentLineORM
-    line_no: int
-    page_idx: int | None = None
-    sheet_name: str | None = None
-    block_type: str
+    """Модель для одной строки документа при обработке."""
+    block_id: str
+    line_num: int
     content: str
-    block_id: str | None = None
+    type: str
+
+class LineInDB(Line):
+    """Модель, представляющая строку, как она хранится в базе данных."""
+    document_id: UUID

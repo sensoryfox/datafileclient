@@ -1,5 +1,5 @@
 import logging, sys, json
-from .config import settings
+from sensory_data_client.config import get_settings
 
 
 class JsonFormatter(logging.Formatter):
@@ -15,7 +15,7 @@ class JsonFormatter(logging.Formatter):
 
 
 def configure():
-    level = getattr(logging, settings.log_level.upper(), logging.INFO)
+    level = getattr(logging, get_settings().log_level.upper(), logging.INFO)
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(JsonFormatter())
     logging.basicConfig(level=level, handlers=[handler])

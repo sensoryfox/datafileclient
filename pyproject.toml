@@ -3,25 +3,36 @@ requires = ["setuptools>=65", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "sensory-datafile"
+name = "sensory-data-client"  # Имя для PyPI
 version = "0.1.0"
-description = "Asynchronous facade for PostgreSQL and MinIO"
+description = "Asynchronous facade for PostgreSQL and MinIO for corporate semantic search systems."
 readme = "README.md"
 requires-python = ">=3.10"
+license = { text = "MIT" } # Хорошая практика - добавить лицензию
+authors = [
+    { name = "Fox", email = "fox@sensorylab.ru" } # Заполните свои данные
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Intended Audience :: Developers",
+    "Topic :: Database",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
 
-# --- Основные зависимости (эквивалент requirements.txt) ---
 dependencies = [
-    "sqlalchemy",
+    "sqlalchemy[asyncio]", # Явно указываем asyncio-совместимость
     "asyncpg",
     "minio",
     "pydantic",
     "pydantic-settings",
     "alembic",
-    "python-dotenv",
-    "aiofiles",
-    "typer", # CLI - часть функционала пакета
+    "typer[all]", # Добавим rich для красивого вывода в CLI
+    "importlib-resources; python_version < '3.9'" # Для работы с файлами пакета в старых версиях Python
 ]
-
 
 [project.optional-dependencies]
 dev = [
@@ -33,10 +44,17 @@ dev = [
     "black",
     "isort",
     "mypy",
+    "python-dotenv", # dotenv нужен только для локальной разработки
 ]
 
+[project.scripts]
+datafile-cli = "sensory_data_client.cli:app"
+
 [tool.setuptools.package-data]
-"data_client" = ["py.typed"]
+"sensory_data_client" = ["py.typed", "alembic.ini", "alembic/versions/*.py"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [tool.black]
 line-length = 100
@@ -45,5 +63,6 @@ line-length = 100
 profile = "black"
 line_length = 100
 
-[tool.setuptools.packages.find]
-where = ["src"]
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"

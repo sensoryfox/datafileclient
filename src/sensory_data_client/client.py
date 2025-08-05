@@ -3,12 +3,14 @@ import hashlib
 import os
 from uuid import UUID, uuid4
 
-from .repositories.pg_repositoryMeta import MetaDataRepository
-from .repositories.pg_repositoryLine import LineRepository
-from .repositories.minio_repository import MinioRepository
-from .models.document import DocumentCreate, DocumentInDB, Line
-from .exceptions import DocumentNotFoundError, DatabaseError, MinioError
+from sensory_data_client.repositories.pg_repositoryMeta import MetaDataRepository
+from sensory_data_client.repositories.pg_repositoryLine import LineRepository
+from sensory_data_client.repositories.minio_repository import MinioRepository
+from sensory_data_client.models.document import DocumentCreate, DocumentInDB
+from sensory_data_client.models.line import Line
+from sensory_data_client.exceptions import DocumentNotFoundError, DatabaseError, MinioError
 
+from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
 logger = logging.getLogger(__name__)
 
 class DataClient:
@@ -17,10 +19,34 @@ class DataClient:
     """
 
     def __init__(self, meta_repo: MetaDataRepository | None = None, line_repo: LineRepository | None = None, minio_repo: MinioRepository | None = None):
-        self.metarepo = meta_repo or MetaDataRepository()
-        self.linerepo = line_repo or LineRepository()
-        self.minio = minio_repo or MinioRepository()
+        self.metarepo = meta_repo
+        self.linerepo = line_repo
+        self.minio = minio_repo
 
+    async def check_connections(self) -> dict[str, str]:
+        """
+        Проверяет доступность всех внешних сервисов (PostgreSQL, MinIO).
+        Возвращает словарь со статусами.
+        """
+        statuses = {}
+        
+        # PostgreSQL Check
+        try:
+            await self.metarepo.check_connection()
+            statuses["postgres"] = "ok"
+        except DatabaseError as e:
+            statuses["postgres"] = f"failed: {e}"
+            
+        # MinIO Check
+        try:
+            await self.minio.check_connection()
+            statuses["minio"] = "ok"
+        except MinioError as e:
+            statuses["minio"] = f"failed: {e}"
+            
+        return statuses
+    
+    
     async def put_object(self, object_name: str, data: bytes, content_type: str | None = None):
         """Универсальный метод для загрузки объекта в MinIO."""
         await self.minio.put_object(object_name, data, content_type)
@@ -96,3 +122,17 @@ class DataClient:
         base, ext = os.path.splitext(fname)
         ext = ext.lstrip(".") or "bin"
         return f"{ext}/{doc_id.hex}-{fname}"
+
+    async def list_doc(self,
+                             limit: int | None = None,
+                             offset: int = 0):
+        return await self.metarepo.list_all(limit, offset)
+
+    async def list_doclines(self,
+                                  doc_id: UUID | None = None):
+        return await self.linerepo.list_all(doc_id)
+
+    async def list_stor(self,
+                                   prefix: str | None = None,
+                                   recursive: bool = True):
+        return await self.minio.list_all(prefix, recursive)
