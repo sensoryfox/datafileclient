@@ -48,7 +48,7 @@ dev = [
 ]
 
 [project.scripts]
-datafile-cli = "sensory_data_client.cli:app"
+sensory_data_client = "sensory_data_client.cli:app"
 
 [tool.setuptools.package-data]
 "sensory_data_client" = ["py.typed", "alembic.ini", "alembic/versions/*.py"]
