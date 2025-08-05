@@ -48,7 +48,6 @@
 ### Установка для разработки
 
 **Шаг 1: Клонируйте репозиторий**
-# Замените на ваш реальный URL
 ```bash
 git clone https://github.com/sensoryfox/datafileclient.git
 cd datafileclient
