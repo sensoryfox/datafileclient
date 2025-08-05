@@ -86,12 +86,12 @@ docker-compose up -d
 **Шаг 3: Инициализируйте окружение**
 Эта команда создаст таблицы в PostgreSQL (`documents`, `document_lines`) и бакет в MinIO.
 ```bash
-python -m sensory_data_client.cli init
+python -m sensory_data_client init
 ```
 **Шаг 4: Проверьте соединения**
 Убедитесь, что ваш локальный Python-код может достучаться до сервисов в Docker.
 ```bash
-python -m sensory_data_client.cli check
+python -m sensory_data_client check
 ```
 Вы должны увидеть:
 
@@ -199,13 +199,13 @@ if __name__ == "__main__":
    Создает таблицы в БД и бакет в MinIO.
    
 ```bash
-python -m sensory_data_client.cli init
+python -m sensory_data_client init
 ```
 *   **Проверить соединения:**
    Проверяет доступность PostgreSQL и MinIO с текущими настройками.
 
 ```bash
-python -m sensory_data_client.cli check
+python -m sensory_data_client check
 ```
 
 ## 🧪 Тестирование

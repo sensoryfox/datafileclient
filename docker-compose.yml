@@ -5,7 +5,7 @@ services:
   postgres:
     image: postgres:15 # <--- Ваш легковесный образ
     ports:
-      - "5433:5432"
+      - "5422:5432"
     environment:
       # Используем гибкую конфигурацию из v2, которая читает .env файл
       POSTGRES_DB: ${POSTGRES_DB:-documents}
@@ -25,8 +25,8 @@ services:
     image: minio/minio:latest
     command: server /data --console-address ":9001"
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "9008:9000"
+      - "9009:9001"
     environment:
       # Гибкая конфигурация из v2
       MINIO_ROOT_USER: ${MINIO_ACCESSKEY:-minioadmin}
