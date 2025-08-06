@@ -14,7 +14,6 @@ class DocumentCreate(BaseModel):
     name: str
     owner: str
     access_group: Optional[str] = None
-    extension: Optional[str] = None
     metadata: Optional[DocumentMetadata] = None
 
 class DocumentInDB(DocumentCreate):
@@ -23,4 +22,5 @@ class DocumentInDB(DocumentCreate):
     edited: datetime = Field(default_factory=lambda: datetime.now(tz=timezone.utc))
     content_hash: str
     object_path: str
-    md_object_path: Optional[str] = None
+    extension: Optional[str] = None
+    #md_object_path: Optional[str] = None

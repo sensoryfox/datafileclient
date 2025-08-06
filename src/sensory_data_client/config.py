@@ -22,7 +22,7 @@ class MinioConfig(BaseModel):
     endpoint: str = "localhost:9000"
     accesskey: str = "minioadmin"
     secretkey: str = "minioadmin"
-    bucket: str = "default-bucket"
+    bucket: str = "documents"
     secure: bool = False
 
 # --- 3. Основной класс для явной передачи конфигурации ---

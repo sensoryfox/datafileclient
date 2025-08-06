@@ -72,31 +72,33 @@ class DataClient:
           ('stored_files' и 'documents') в рамках одной транзакции.
         """
         # 1. Считаем хэш и ищем существующий физический файл
+        id_doc = uuid4()
         content_hash = hashlib.sha256(content).hexdigest()
         logger.info(f"Uploading file '{file_name}' with hash {content_hash[:8]}...")
         
-        existing_stored_file = await self.metarepo.get_stored_file_by_hash(content_hash)
+        existing = await self.metarepo.get_stored_file_by_hash(content_hash)
         
         # --- Сценарий A: Файл с таким контентом уже существует ---
-        if existing_stored_file:
-            logger.info(f"Duplicate content detected. Linking to existing file ID {existing_stored_file.id}")
+        if existing:
+            logger.info(f"Duplicate content detected. Linking to existing file ID {existing.id}")
             
             # Создаем только логическую запись о документе
             document_orm = DocumentORM(
-                **meta.model_dump(),
-                id=uuid4(),
-                stored_file_hash=existing_stored_file.content_hash  # Ссылка на существующий файл!
+                id=id_doc,
+                user_document_id=meta.user_document_id,
+                name=meta.name,
+                owner=meta.owner,
+                access_group=meta.access_group,
+                metadata_=meta.metadata.model_dump(),
+                stored_file_id=existing.id
             )
-            
-            # Сохраняем ТОЛЬКО метаданные. Транзакция не нужна, т.к. операция одна.
-            saved_doc_orm = await self.metarepo.save(document_orm)
-            # Необходимо обогатить pydantic модель данными из связанной таблицы
+            await self.metarepo.save(document_orm)
             return document_orm.to_pydantic()
 
         # --- Сценарий Б: Это новый, уникальный файл ---
         else:
             logger.info("New unique content. Uploading to MinIO and creating new DB entries.")
-            object_path = self._build_object_path(file_name, uuid4())
+            object_path = self._build_object_path(file_name, id_doc)
 
             try:
                 # Шаг 1: Загружаем в MinIO
@@ -108,17 +110,18 @@ class DataClient:
                     object_path=object_path,
                     size_bytes=len(content)
                 )
-                
                 document_orm = DocumentORM(
-                    **meta.model_dump(),
-                    id=uuid4(),
+                    id=id_doc,
+                    user_document_id=meta.user_document_id,
+                    name=meta.name,
+                    owner=meta.owner,
+                    access_group=meta.access_group,
+                    metadata_=meta.metadata.model_dump(),
                     stored_file=stored_file_orm
                 )
 
                 # Шаг 3: Сохраняем оба объекта в одной транзакции
                 await self.metarepo.save_new_physical_file(stored_file_orm, document_orm)
-                
-                # Возвращаем полную Pydantic модель
                 return document_orm.to_pydantic()
 
             except (DatabaseError, MinioError) as e:

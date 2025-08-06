@@ -19,7 +19,6 @@ async def test_full_lifecycle(data_client: DataClient):
         name=file_name,
         owner="tester",
         access_group="test-group",
-        extension="log",
         metadata=DocumentMetadata(extra={"source": "pytest"})
     )
 

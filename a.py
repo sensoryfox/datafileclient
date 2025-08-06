@@ -3,10 +3,11 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-
+from dotenv import load_dotenv
 # --- КОНФИГУРАЦИЯ ---
 # Вставьте сюда ваши данные.
 # ВНИМАНИЕ: Это небезопасно, если вы используете Git.
+load_dotenv()
 PROXY_URL = "http://azyQZx:VTDf5S@170.244.95.14:9310"
 PYPI_TOKEN = os.environ['PYPI_API_TOKEN'] 
 DIST_DIR = "dist"

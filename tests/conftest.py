@@ -36,7 +36,7 @@ def _test_containers(request):
     os.environ["MINIO_ACCESS_KEY"] = minio_config["access_key"]
     os.environ["MINIO_SECRET_KEY"] = minio_config["secret_key"]
     os.environ["MINIO_SECURE"] = "False"
-    os.environ["MINIO_BUCKET"] = "test-bucket"
+    os.environ["MINIO_BUCKET"] = "corporate"
 
     print("Test containers are running and environment is set.")
     yield
