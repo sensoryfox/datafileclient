@@ -8,6 +8,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sensory_data_client.exceptions import DatabaseError
 from sensory_data_client.models.document import DocumentInDB
 from sensory_data_client.db.document_orm import DocumentORM
+from sensory_data_client.db.storage_orm import StoredFileORM
 from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
 from sensory_data_client.db.base import get_session
 
@@ -28,22 +29,16 @@ class MetaDataRepository:
                 logger.error(f"PostgreSQL connection failed: {e}")
                 raise DatabaseError("Failed to connect to the database.") from e
 
-    async def save(self, doc: DocumentInDB) -> DocumentInDB:
+    async def save(self, doc: DocumentORM) -> DocumentORM:
         async for session in get_session(self._session_factory):
             try:
-                # 1. Выгружаем данные из Pydantic-модели в словарь.
-                model_data = doc.model_dump()
-                # 2. Явно "переименовываем" ключ 'metadata' в 'metadata_' 
-                model_data['metadata_'] = model_data.pop('metadata')
-                # 3. Создаем ORM-объект, используя подготовленный словарь.
-                orm = DocumentORM(**model_data)
-                session.add(orm)
+                session.add(doc)
                 await session.commit()
-                await session.refresh(orm)
-                return orm.to_pydantic()
+                await session.refresh(doc)
+                return doc
             except IntegrityError as e:
                 await session.rollback()
-                raise DatabaseError(str(e)) from e
+                raise DatabaseError(f"Failed to save document metadata: {e}") from e
 
     async def get(self, doc_id: UUID) -> Optional[DocumentInDB]:
         async for session in get_session(self._session_factory):
@@ -74,6 +69,24 @@ class MetaDataRepository:
             await session.commit()
             return res.rowcount > 0
 
+    async def get_stored_file_by_hash(self, content_hash: str) -> StoredFileORM | None:
+        async for session in get_session(self._session_factory):
+            stmt = select(StoredFileORM).where(StoredFileORM.content_hash == content_hash)
+            result = await session.execute(stmt)
+            return result.scalar_one_or_none()
+
+    async def save_new_physical_file(self, stored_file: StoredFileORM, document: DocumentORM):
+        """
+        Транзакционно сохраняет и физический файл, и логический документ.
+        Используется, когда файл действительно новый.
+        """
+        async for session in get_session(self._session_factory):
+            session.add(stored_file)
+            session.add(document)
+            await session.commit()
+            # Обновляем объект document, чтобы он содержал все данные из БД
+            await session.refresh(document)
+            
     async def list_all(self,
                        limit: int | None = None,
                        offset: int = 0) -> list[DocumentInDB]:

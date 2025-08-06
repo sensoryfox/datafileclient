@@ -6,14 +6,11 @@ from typing import Optional
 
 # --- 1. Создаем подкласс для настроек PostgreSQL ---
 class PostgresConfig(BaseModel):
-    # pydantic-settings автоматически приведет переменные окружения к нижнему регистру
-    # PG_USER -> user, PG_PASSWORD -> password, и т.д.
-
-    user: str
-    password: str
-    host: str
-    port: int
-    db: str
+    user: str = "postgres"
+    password: str = "postgres"
+    host: str = "localhost"
+    port: int = 5422
+    db: str = "documents"
 
     def get_pg_dsn(self) -> str:
         """Собирает DSN для SQLAlchemy из полей этого объекта."""
@@ -22,19 +19,17 @@ class PostgresConfig(BaseModel):
 
 # --- 2. Создаем подкласс для настроек MinIO ---
 class MinioConfig(BaseModel):
-
-    endpoint: str
-    accesskey: str
-    secretkey: str
-    bucket: str
+    endpoint: str = "localhost:9000"
+    accesskey: str = "minioadmin"
+    secretkey: str = "minioadmin"
+    bucket: str = "default-bucket"
     secure: bool = False
-
 
 # --- 3. Основной класс для явной передачи конфигурации ---
 # Теперь он состоит из двух вложенных объектов. Это и есть та "одна переменная", которую вы хотели.
 class DataClientConfig(BaseModel):
-    postgres: PostgresConfig
-    minio: MinioConfig
+    postgres: PostgresConfig = Field(default_factory=PostgresConfig)
+    minio: MinioConfig = Field(default_factory=MinioConfig)
 
 # --- 4. Обновляем класс Settings для чтения из .env ---
 # Он тоже будет использовать вложенную структуру. Pydantic это умеет!
@@ -44,13 +39,14 @@ class Settings(BaseSettings):
         env_file=".env",              # Файл, из которого читаем
         env_file_encoding="utf-8",
         case_sensitive=False,
-        env_nested_delimiter='_'
+        env_nested_delimiter='_',
+        extra='ignore'
     )
 
     log_level: str = Field("INFO", alias="LOG_LEVEL") # Можно использовать alias для ясности
 
-    postgres: PostgresConfig
-    minio: MinioConfig
+    postgres: PostgresConfig = Field(default_factory=PostgresConfig)
+    minio: MinioConfig = Field(default_factory=MinioConfig)
 
 # --- ИСПРАВЛЕНО: Ленивая инициализация ---
 _cached_settings: Optional[Settings] = None

@@ -6,6 +6,8 @@ from uuid import UUID, uuid4
 from sensory_data_client.repositories.pg_repositoryMeta import MetaDataRepository
 from sensory_data_client.repositories.pg_repositoryLine import LineRepository
 from sensory_data_client.repositories.minio_repository import MinioRepository
+from sensory_data_client.repositories.pg_repositoryObj import ObjectRepository
+from sensory_data_client.db import DocumentORM, StoredFileORM
 from sensory_data_client.models.document import DocumentCreate, DocumentInDB
 from sensory_data_client.models.line import Line
 from sensory_data_client.exceptions import DocumentNotFoundError, DatabaseError, MinioError
@@ -18,10 +20,12 @@ class DataClient:
     Единая точка доступа для бизнес-логики.
     """
 
-    def __init__(self, meta_repo: MetaDataRepository | None = None, line_repo: LineRepository | None = None, minio_repo: MinioRepository | None = None):
+    def __init__(self, meta_repo: MetaDataRepository | None = None, line_repo: LineRepository | None = None, 
+                 minio_repo: MinioRepository | None = None, obj_repo: ObjectRepository | None = None):
         self.metarepo = meta_repo
         self.linerepo = line_repo
         self.minio = minio_repo
+        self.obj = obj_repo
 
     async def check_connections(self) -> dict[str, str]:
         """
@@ -57,29 +61,71 @@ class DataClient:
     
     # ――― atomic high-level ops ――― #
     
+
     async def upload_file(self, file_name: str, content: bytes, meta: DocumentCreate) -> DocumentInDB:
-        document_uuid = uuid4()
-        object_path = self._build_object_path(file_name, document_uuid)
+        """
+        Загружает файл, применяя дедупликацию по хэшу контента.
+        
+        - Если файл с таким же хэшем уже существует, новый файл в MinIO не загружается.
+          Создается только новая запись в 'documents', ссылающаяся на существующий 'stored_files'.
+        - Если файл новый, он загружается в MinIO, и в БД создаются обе записи
+          ('stored_files' и 'documents') в рамках одной транзакции.
+        """
+        # 1. Считаем хэш и ищем существующий физический файл
         content_hash = hashlib.sha256(content).hexdigest()
+        logger.info(f"Uploading file '{file_name}' with hash {content_hash[:8]}...")
+        
+        existing_stored_file = await self.metarepo.get_stored_file_by_hash(content_hash)
+        
+        # --- Сценарий A: Файл с таким контентом уже существует ---
+        if existing_stored_file:
+            logger.info(f"Duplicate content detected. Linking to existing file ID {existing_stored_file.id}")
+            
+            # Создаем только логическую запись о документе
+            document_orm = DocumentORM(
+                **meta.model_dump(),
+                id=uuid4(),
+                stored_file_hash=existing_stored_file.content_hash  # Ссылка на существующий файл!
+            )
+            
+            # Сохраняем ТОЛЬКО метаданные. Транзакция не нужна, т.к. операция одна.
+            saved_doc_orm = await self.metarepo.save(document_orm)
+            # Необходимо обогатить pydantic модель данными из связанной таблицы
+            return document_orm.to_pydantic()
 
-        # 1. MinIO ➜ если упадёт – исключение, в БД ничего не пишем
-        await self.minio.put_object(object_path, content, content_type="application/octet-stream")
+        # --- Сценарий Б: Это новый, уникальный файл ---
+        else:
+            logger.info("New unique content. Uploading to MinIO and creating new DB entries.")
+            object_path = self._build_object_path(file_name, uuid4())
 
-        # 2. БД
-        doc_in_db = DocumentInDB(
-            **meta.model_dump(),
-            id=document_uuid,
-            content_hash=content_hash,
-            object_path=object_path,
-            md_object_path=None,
-        )
-        try:
-            saved = await self.metarepo.save(doc_in_db)
-            return saved
-        except DatabaseError as e:
-            # Rollback: удаляем из MinIO
-            await self.minio.remove_object(object_path)
-            raise
+            try:
+                # Шаг 1: Загружаем в MinIO
+                await self.minio.put_object(object_path, content, content_type="application/octet-stream")
+
+                # Шаг 2: Готовим ORM-объекты для обеих таблиц
+                stored_file_orm = StoredFileORM(
+                    content_hash=content_hash,
+                    object_path=object_path,
+                    size_bytes=len(content)
+                )
+                
+                document_orm = DocumentORM(
+                    **meta.model_dump(),
+                    id=uuid4(),
+                    stored_file=stored_file_orm
+                )
+
+                # Шаг 3: Сохраняем оба объекта в одной транзакции
+                await self.metarepo.save_new_physical_file(stored_file_orm, document_orm)
+                
+                # Возвращаем полную Pydantic модель
+                return document_orm.to_pydantic()
+
+            except (DatabaseError, MinioError) as e:
+                logger.error(f"Transaction failed during new file upload: {e}. Rolling back MinIO upload.")
+                # Rollback: если запись в БД не удалась, удаляем уже загруженный файл из MinIO
+                await self.minio.remove_object(object_path)
+                raise  # Перевыбрасываем исключение наверх
     
     async def get_file(self, doc_id: UUID) -> bytes:
         doc = await self.metarepo.get(doc_id)
@@ -121,7 +167,7 @@ class DataClient:
     def _build_object_path(fname: str, doc_id: UUID) -> str:
         base, ext = os.path.splitext(fname)
         ext = ext.lstrip(".") or "bin"
-        return f"{ext}/{doc_id.hex}-{fname}"
+        return f"{ext}/{doc_id.hex}/{fname}"
 
     async def list_doc(self,
                              limit: int | None = None,
@@ -136,3 +182,9 @@ class DataClient:
                                    prefix: str | None = None,
                                    recursive: bool = True):
         return await self.minio.list_all(prefix, recursive)
+    
+    async def list_stored_files(self,
+                                   limit: int | None = None,
+                                   offset: int = 0):
+        """Возвращает список всех физически сохраненных файлов."""
+        return await self.obj.list_all(limit, offset)
