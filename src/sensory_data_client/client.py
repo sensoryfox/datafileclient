@@ -2,17 +2,18 @@ import logging
 import hashlib
 import os
 from uuid import UUID, uuid4
+from typing import Optional
+from pathlib import Path
+from sensory_data_client.repositories import (MetaDataRepository, 
+                                            ImageRepository, 
+                                            LineRepository,
+                                            MinioRepository,
+                                            ObjectRepository)
 
-from sensory_data_client.repositories.pg_repositoryMeta import MetaDataRepository
-from sensory_data_client.repositories.pg_repositoryLine import LineRepository
-from sensory_data_client.repositories.minio_repository import MinioRepository
-from sensory_data_client.repositories.pg_repositoryObj import ObjectRepository
-from sensory_data_client.db import DocumentORM, StoredFileORM
-from sensory_data_client.models.document import DocumentCreate, DocumentInDB
-from sensory_data_client.models.line import Line
+from sensory_data_client.db import DocumentORM, StoredFileORM, DocumentImageORM, UserORM
+from sensory_data_client.models import Line, DocumentCreate, DocumentInDB
 from sensory_data_client.exceptions import DocumentNotFoundError, DatabaseError, MinioError
 
-from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
 logger = logging.getLogger(__name__)
 
 class DataClient:
@@ -20,12 +21,19 @@ class DataClient:
     Единая точка доступа для бизнес-логики.
     """
 
-    def __init__(self, meta_repo: MetaDataRepository | None = None, line_repo: LineRepository | None = None, 
-                 minio_repo: MinioRepository | None = None, obj_repo: ObjectRepository | None = None):
+    def __init__(
+        self,
+        meta_repo: MetaDataRepository | None = None,
+        line_repo: LineRepository | None = None,
+        minio_repo: MinioRepository | None = None,
+        obj_repo: ObjectRepository | None = None,
+        image_repo: ImageRepository | None = None,  # <-- ДОБАВИТЬ
+    ):        
         self.metarepo = meta_repo
         self.linerepo = line_repo
         self.minio = minio_repo
         self.obj = obj_repo
+        self.imagerepo = image_repo
 
     async def check_connections(self) -> dict[str, str]:
         """
@@ -60,7 +68,6 @@ class DataClient:
         return await self.minio.get_object(object_name)
     
     # ――― atomic high-level ops ――― #
-    
 
     async def upload_file(self, file_name: str, content: bytes, meta: DocumentCreate) -> DocumentInDB:
         """
@@ -87,8 +94,8 @@ class DataClient:
                 id=id_doc,
                 user_document_id=meta.user_document_id,
                 name=meta.name,
-                owner=meta.owner,
-                access_group=meta.access_group,
+                owner_id=meta.owner_id,
+                access_group_id=meta.access_group_id,
                 metadata_=meta.metadata.model_dump(),
                 stored_file_id=existing.id
             )
@@ -108,14 +115,15 @@ class DataClient:
                 stored_file_orm = StoredFileORM(
                     content_hash=content_hash,
                     object_path=object_path,
-                    size_bytes=len(content)
+                    size_bytes=len(content),
+                    extension=Path(file_name).suffix.lower().lstrip('.')
                 )
                 document_orm = DocumentORM(
                     id=id_doc,
                     user_document_id=meta.user_document_id,
                     name=meta.name,
-                    owner=meta.owner,
-                    access_group=meta.access_group,
+                    owner_id=meta.owner_id,
+                    access_group_id=meta.access_group_id,
                     metadata_=meta.metadata.model_dump(),
                     stored_file=stored_file_orm
                 )
@@ -155,6 +163,7 @@ class DataClient:
         logger.info(f"Generated presigned URL for document {doc_id}")
         return url
     
+######################## LINE
     async def save_document_lines(self, doc_id: UUID, lines: list[Line]):
         """Сохраняет разобранные строки документа в PostgreSQL."""
         logger.info(f"Saving {len(lines)} lines for document {doc_id}")
@@ -165,12 +174,74 @@ class DataClient:
         logger.info(f"Updating alt text for block {block_id} in document {doc_id}")
         await self.linerepo.update_lines(doc_id, block_id, new_content)
         
+        
+######################## IMG
+
+    async def create_image_processing_task(
+        self,
+        doc_id: UUID,
+        object_key: str,
+        filename: str,
+        image_hash: str,
+        source_line_id: Optional[UUID] = None
+    ) -> UUID:
+        """
+        Создает запись о задаче на обработку изображения в БД.
+        """
+        return await self.imagerepo.create_task(
+            doc_id=doc_id,
+            object_key=object_key,
+            filename=filename,
+            image_hash=image_hash,
+            source_line_id=source_line_id
+        )
+        
+    async def claim_image_task(self, image_id: UUID) -> Optional[DocumentImageORM]:
+        """
+        Атомарно захватывает задачу по обработке изображения.
+        Возвращает ORM-объект задачи или None, если она уже взята в работу.
+        """
+        logger.info(f"Attempting to claim image processing task: {image_id}")
+        return await self.imagerepo.claim_task(image_id)
+    
+    async def mark_image_task_done(self, image_id: UUID, result_text: str, llm_model: str):
+        """Помечает задачу как успешно выполненную."""
+        logger.info(f"Marking image task as done: {image_id}")
+        await self.imagerepo.update_task_status(
+            image_id,
+            status='done',
+            result_text=result_text,
+            llm_model=llm_model
+        )
+
+    async def mark_image_task_failed(self, image_id: UUID, error_message: str):
+        """Помечает задачу как проваленную (финальный статус)."""
+        logger.error(f"Marking image task as failed: {image_id}. Reason: {error_message}")
+        await self.imagerepo.update_task_status(
+            image_id,
+            status='failed',
+            last_error=error_message
+        )
+
+    async def mark_image_task_for_retry(self, image_id: UUID, error_message: str):
+        """
+        Возвращает задачу в очередь для повторной попытки.
+        Используется перед тем, как Celery вызовет retry.
+        """
+        logger.warning(f"Marking image task for retry: {image_id}. Reason: {error_message}")
+        await self.imagerepo.update_task_status(
+            image_id,
+            status='enqueued',
+            last_error=error_message
+        )
+        
+        
     # ――― helpers ――― #
     @staticmethod
     def _build_object_path(fname: str, doc_id: UUID) -> str:
         base, ext = os.path.splitext(fname)
         ext = ext.lstrip(".") or "bin"
-        return f"{ext}/{doc_id.hex}/{fname}"
+        return f"{ext}/{doc_id.hex}/raw/{fname}"
 
     async def list_doc(self,
                              limit: int | None = None,
@@ -191,3 +262,14 @@ class DataClient:
                                    offset: int = 0):
         """Возвращает список всех физически сохраненных файлов."""
         return await self.obj.list_all(limit, offset)
+    
+    
+    
+######################## CLI
+    async def get_user_by_username(self, username: str) -> Optional[UserORM]:
+        # Делегирует вызов в UserRepository
+        return await self.user_repo.get_by_username(username)
+
+    async def get_user_by_id(self, user_id: UUID) -> Optional[UserORM]:
+        # Делегирует вызов в UserRepository
+        return await self.user_repo.get_by_id(user_id)

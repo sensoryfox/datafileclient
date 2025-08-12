@@ -10,6 +10,7 @@ from .repositories.pg_repositoryMeta import MetaDataRepository
 from .repositories.pg_repositoryLine import LineRepository
 from .repositories.minio_repository import MinioRepository
 from .repositories.pg_repositoryObj import ObjectRepository
+from .repositories.pg_repositoryImage import ImageRepository 
 from .exceptions import *
 
 def create_data_client(config: Optional[DataClientConfig] = None) -> DataClient:
@@ -32,9 +33,10 @@ def create_data_client(config: Optional[DataClientConfig] = None) -> DataClient:
     engine = create_async_engine(config.postgres.get_pg_dsn())
     session_factory = async_sessionmaker(bind=engine, expire_on_commit=False)
     
-    meta_repo = MetaDataRepository(session_factory)
     line_repo = LineRepository(session_factory)
-    obj_repo = LineRepository(ObjectRepository)
+    meta_repo = MetaDataRepository(session_factory)
+    obj_repo = ObjectRepository(session_factory)
+    image_repo = ImageRepository(session_factory)
 
     # 2. Создаем зависимость для MinIO.
     # Распаковываем словарь из Pydantic-модели прямо в конструктор. Элегантно!
@@ -45,7 +47,8 @@ def create_data_client(config: Optional[DataClientConfig] = None) -> DataClient:
         meta_repo=meta_repo,
         line_repo=line_repo,
         minio_repo=minio_repo,
-        obj_repo=obj_repo
+        obj_repo=obj_repo,
+        image_repo=image_repo
     )
     return client
 

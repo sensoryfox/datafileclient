@@ -11,6 +11,8 @@ from sensory_data_client.db.documentLine_orm import DocumentLineORM
 from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
 from sensory_data_client.db.base import get_session
 
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+
 logger = logging.getLogger(__name__)
 
 class LineRepository:
@@ -34,11 +36,29 @@ class LineRepository:
 
                 # 2. Готовим данные для bulk-вставки
                 line_dicts = [
-                    {**line.model_dump(), "document_id": doc_id} for line in lines
+                    {
+                        "document_id": doc_id,
+                        "position": line.line_no, # Явно указываем, что line_no идет в position
+                        "page_idx": line.page_idx,
+                        "block_id": line.block_id,
+                        "block_type": line.block_type,
+                        "content": line.content,
+                        "geometry": { # Собираем геометрию в один JSON-объект
+                            "polygon": line.polygon,
+                            "bbox": line.bbox,
+                        },
+                        "hierarchy": line.hierarchy,
+                        "sheet_name": line.sheet_name
+                    }
+                    for line in lines
                 ]
                 
-                # 3. Выполняем bulk-вставку
-                await session.execute(insert(DocumentLineORM), line_dicts)
+                if line_dicts:
+                        # Используем statement, а не session.execute(insert(...)),
+                        # чтобы SQLAlchemy мог работать с диалектом PostgreSQL.
+                        stmt = pg_insert(DocumentLineORM).values(line_dicts)
+                        await session.execute(stmt)
+                    
                 await session.commit()
             except SQLAlchemyError as e:
                 await session.rollback()
@@ -62,6 +82,42 @@ class LineRepository:
                 await session.rollback()
                 raise DatabaseError(f"Failed to update line content for block {block_id}: {e}") from e
             
+    async def copy_lines(self, source_doc_id: UUID, target_doc_id: UUID):
+        """
+        Копирует все строки из одного документа в другой с помощью SQL.
+        """
+        async for session in get_session(self._session_factory):
+            try:
+                # 1. Выбираем все строки-источники
+                source_lines_stmt = select(DocumentLineORM).where(DocumentLineORM.document_id == source_doc_id)
+                source_lines = (await session.execute(source_lines_stmt)).scalars().all()
+
+                if not source_lines:
+                    return # Нечего копировать
+
+                # 2. Готовим данные для вставки в новый документ
+                new_lines_data = [
+                    {
+                        "document_id": target_doc_id, # <-- Новый ID
+                        "position": line.position,
+                        "page_idx": line.page_idx,
+                        "block_id": line.block_id,
+                        "block_type": line.block_type,
+                        "content": line.content,
+                        "geometry": line.geometry,
+                        "hierarchy": line.hierarchy,
+                        "sheet_name": line.sheet_name
+                    } for line in source_lines
+                ]
+
+                # 3. Вставляем скопом
+                await session.execute(pg_insert(DocumentLineORM).values(new_lines_data))
+                await session.commit()
+                logger.info(f"Successfully copied {len(new_lines_data)} lines from doc {source_doc_id} to {target_doc_id}")
+            except SQLAlchemyError as e:
+                await session.rollback()
+                raise DatabaseError(f"Failed to copy lines from {source_doc_id} to {target_doc_id}: {e}") from e
+            
     async def list_all(self,
                        doc_id: UUID | None = None) -> list[Line]:
         """
@@ -84,7 +140,7 @@ class LineRepository:
                         "document_id": o.document_id,
                         "block_id":    o.block_id,
                         "position":    o.position,
-                        "type":        o.type,
+                        "type":        o.block_type,
                         "content":     o.content,
                     }
                 )

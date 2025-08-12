@@ -12,15 +12,18 @@ class DocumentMetadata(BaseModel):
 class DocumentCreate(BaseModel):
     user_document_id: str
     name: str
-    owner: str
-    access_group: Optional[str] = None
+    owner_id: str
+    access_group_id: Optional[str] = None
     metadata: Optional[DocumentMetadata] = None
 
 class DocumentInDB(DocumentCreate):
     id: UUID = Field(default_factory=uuid4)
     created: datetime = Field(default_factory=lambda: datetime.now(tz=timezone.utc))
     edited: datetime = Field(default_factory=lambda: datetime.now(tz=timezone.utc))
+    # Поля из связанной таблицы stored_files
+    extension: str
     content_hash: str
     object_path: str
-    extension: Optional[str] = None
-    #md_object_path: Optional[str] = None
+
+    class Config:
+        orm_mode = True 

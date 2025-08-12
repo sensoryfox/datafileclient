@@ -87,6 +87,25 @@ class MetaDataRepository:
             # Обновляем объект document, чтобы он содержал все данные из БД
             await session.refresh(document)
             
+    async def find_parsed_doc_by_hash(self, content_hash: str, exclude_doc_id: UUID) -> Optional[DocumentORM]:
+        """
+        Находит документ с таким же хешем, у которого есть строки, исключая текущий документ.
+        """
+        async for session in get_session(self._session_factory):
+            stmt = (
+                select(DocumentORM)
+                .join(DocumentORM.stored_file)
+                .join(DocumentORM.lines)
+                .where(
+                    StoredFileORM.content_hash == content_hash,
+                    DocumentORM.id != exclude_doc_id
+                )
+                .limit(1)
+            )
+            result = await session.execute(stmt)
+            return result.scalar_one_or_none()
+        
+        
     async def list_all(self,
                        limit: int | None = None,
                        offset: int = 0) -> list[DocumentInDB]:
