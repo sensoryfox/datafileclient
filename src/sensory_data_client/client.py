@@ -174,6 +174,11 @@ class DataClient:
         logger.info(f"Updating alt text for block {block_id} in document {doc_id}")
         await self.linerepo.update_lines(doc_id, block_id, new_content)
         
+    async def copy_lines(self, source_doc_id: UUID, target_doc_id: UUID):
+        """Обновляет markdown-строку, добавляя описание изображения."""
+        logger.info(f"COPY alt text for block {source_doc_id} in {target_doc_id}")
+        await self.linerepo.copy_lines(source_doc_id, target_doc_id)
+        
         
 ######################## IMG
 
