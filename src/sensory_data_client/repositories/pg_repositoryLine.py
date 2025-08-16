@@ -7,7 +7,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from sensory_data_client.exceptions import DatabaseError
 from sensory_data_client.models.line import Line
-from sensory_data_client.db.documentLine_orm import DocumentLineORM
+from sensory_data_client.db.documents.documentLine_orm import DocumentLineORM
 from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
 from sensory_data_client.db.base import get_session
 
@@ -31,13 +31,13 @@ class LineRepository:
             try:
                 # 1. Удаляем все предыдущие строки для этого документа
                 await session.execute(
-                    delete(DocumentLineORM).where(DocumentLineORM.document_id == doc_id)
+                    delete(DocumentLineORM).where(DocumentLineORM.doc_id == doc_id)
                 )
 
                 # 2. Готовим данные для bulk-вставки
                 line_dicts = [
                     {
-                        "document_id": doc_id,
+                        "doc_id": doc_id,
                         "position": line.line_no, # Явно указываем, что line_no идет в position
                         "page_idx": line.page_idx,
                         "block_id": line.block_id,
@@ -70,10 +70,10 @@ class LineRepository:
         Используется для добавления alt-текста.
         """
         async for session in get_session(self._session_factory):
-            try:
+            try: 
                 res = await session.execute(
                     update(DocumentLineORM)
-                    .where(DocumentLineORM.document_id == doc_id, DocumentLineORM.block_id == block_id)
+                    .where(DocumentLineORM.doc_id == doc_id, DocumentLineORM.block_id == block_id)
                     .values(content=new_content)
                 )
                 await session.commit()
@@ -89,7 +89,7 @@ class LineRepository:
         async for session in get_session(self._session_factory):
             try:
                 # 1. Выбираем все строки-источники
-                source_lines_stmt = select(DocumentLineORM).where(DocumentLineORM.document_id == source_doc_id)
+                source_lines_stmt = select(DocumentLineORM).where(DocumentLineORM.doc_id == source_doc_id)
                 source_lines = (await session.execute(source_lines_stmt)).scalars().all()
 
                 if not source_lines:
@@ -98,7 +98,7 @@ class LineRepository:
                 # 2. Готовим данные для вставки в новый документ
                 new_lines_data = [
                     {
-                        "document_id": target_doc_id, # <-- Новый ID
+                        "doc_id": target_doc_id, # <-- Новый ID
                         "position": line.position,
                         "page_idx": line.page_idx,
                         "block_id": line.block_id,
@@ -117,7 +117,21 @@ class LineRepository:
             except SQLAlchemyError as e:
                 await session.rollback()
                 raise DatabaseError(f"Failed to copy lines from {source_doc_id} to {target_doc_id}: {e}") from e
-            
+         
+    async def get_lines_for_document(self, doc_id: UUID) -> List[DocumentLineORM]:
+        """
+        Возвращает список всех ORM-объектов строк для указанного документа.
+        Строки отсортированы по их позиции в документе.
+        """
+        async for session in get_session(self._session_factory):
+            stmt = (
+                select(DocumentLineORM)
+                .where(DocumentLineORM.doc_id == doc_id)
+                .order_by(DocumentLineORM.position) # Сортировка важна для консистентности
+            )
+            result = await session.execute(stmt)
+            return list(result.scalars().all())
+           
     async def list_all(self,
                        doc_id: UUID | None = None) -> list[Line]:
         """
@@ -126,10 +140,10 @@ class LineRepository:
         """
         async for session in get_session(self._session_factory):
             q = select(DocumentLineORM).order_by(
-                DocumentLineORM.document_id, DocumentLineORM.position
+                DocumentLineORM.doc_id, DocumentLineORM.position
             )
             if doc_id:
-                q = q.where(DocumentLineORM.document_id == doc_id)
+                q = q.where(DocumentLineORM.doc_id == doc_id)
 
             rows = await session.execute(q)
             orms = rows.scalars().all()
@@ -137,11 +151,11 @@ class LineRepository:
             return [
                 Line.model_validate(
                     {
-                        "document_id": o.document_id,
-                        "block_id":    o.block_id,
-                        "position":    o.position,
-                        "type":        o.block_type,
-                        "content":     o.content,
+                        "doc_id":       o.doc_id,
+                        "block_id":     o.block_id,
+                        "position":     o.position,
+                        "type":         o.block_type,
+                        "content":      o.content,
                     }
                 )
                 for o in orms

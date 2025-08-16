@@ -1,9 +1,9 @@
 # В новом файле, например, db/storage_orm.py
 from sqlalchemy import String, BigInteger, DateTime, func
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from datetime import datetime
 
-from .base import Base
+from sensory_data_client.db.base import Base
 
 class StoredFileORM(Base):
     __tablename__ = "stored_files"
@@ -16,4 +16,5 @@ class StoredFileORM(Base):
     first_uploaded_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+    documents: Mapped[list["DocumentORM"]] = relationship("DocumentORM", back_populates="stored_file")
     

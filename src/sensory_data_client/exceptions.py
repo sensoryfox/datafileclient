@@ -4,6 +4,8 @@ class DataClientError(Exception):
 
 class DatabaseError(DataClientError):
     pass
+class NotFoundError(DataClientError):
+    pass
 
 
 class MinioError(DataClientError):

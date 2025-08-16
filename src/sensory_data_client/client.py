@@ -2,17 +2,24 @@ import logging
 import hashlib
 import os
 from uuid import UUID, uuid4
-from typing import Optional
+from typing import Optional, List
 from pathlib import Path
+from datetime import datetime, timezone, timedelta
 from sensory_data_client.repositories import (MetaDataRepository, 
                                             ImageRepository, 
                                             LineRepository,
                                             MinioRepository,
-                                            ObjectRepository)
+                                            ObjectRepository,
+                                            UserRepository, 
+                                            GroupRepository,
+                                            BillingRepository, 
+                                            PermissionRepository,   
+                                            TagRepository       
+                                            )
 
-from sensory_data_client.db import DocumentORM, StoredFileORM, DocumentImageORM, UserORM
-from sensory_data_client.models import Line, DocumentCreate, DocumentInDB
-from sensory_data_client.exceptions import DocumentNotFoundError, DatabaseError, MinioError
+from sensory_data_client.db import DocumentLineORM, TagORM, DocumentORM, StoredFileORM, DocumentImageORM, UserORM, SubscriptionORM
+from sensory_data_client.models import Line, DocumentCreate, DocumentInDB, GroupCreate, GroupInDB, GroupWithMembers
+from sensory_data_client.exceptions import DocumentNotFoundError, DatabaseError, MinioError, NotFoundError 
 
 logger = logging.getLogger(__name__)
 
@@ -27,13 +34,23 @@ class DataClient:
         line_repo: LineRepository | None = None,
         minio_repo: MinioRepository | None = None,
         obj_repo: ObjectRepository | None = None,
-        image_repo: ImageRepository | None = None,  # <-- ДОБАВИТЬ
+        image_repo: ImageRepository | None = None, 
+        user_repo: UserRepository | None = None,
+        group_repo: GroupRepository | None = None,
+        billing_repo: BillingRepository | None = None,
+        permission_repo: PermissionRepository | None = None,
+        tag_repo: TagRepository | None = None,
     ):        
         self.metarepo = meta_repo
         self.linerepo = line_repo
         self.minio = minio_repo
         self.obj = obj_repo
         self.imagerepo = image_repo
+        self.user_repo = user_repo
+        self.group_repo = group_repo
+        self.billing_repo = billing_repo 
+        self.permission_repo = permission_repo
+        self.tag_repo = tag_repo
 
     async def check_connections(self) -> dict[str, str]:
         """
@@ -163,6 +180,19 @@ class DataClient:
         logger.info(f"Generated presigned URL for document {doc_id}")
         return url
     
+######################## DOC STATUS FOR ELASTIC
+    async def is_sync_enabled(self, doc_id: UUID) -> bool:
+        """Проверяет, включена ли для документа синхронизация с поисковым индексом."""
+        if not self.metarepo:
+            raise NotImplementedError("MetaDataRepository is not configured.")
+        return await self.metarepo.get_sync_status(doc_id)
+
+    async def set_document_sync_status(self, doc_id: UUID, is_enabled: bool) -> Optional[DocumentInDB]:
+        """Включает или выключает синхронизацию документа с поисковым индексом."""
+        if not self.metarepo:
+            raise NotImplementedError("MetaDataRepository is not configured.")
+        return await self.metarepo.set_sync_status(doc_id, is_enabled)
+    
 ######################## LINE
     async def save_document_lines(self, doc_id: UUID, lines: list[Line]):
         """Сохраняет разобранные строки документа в PostgreSQL."""
@@ -179,6 +209,15 @@ class DataClient:
         logger.info(f"COPY alt text for block {source_doc_id} in {target_doc_id}")
         await self.linerepo.copy_lines(source_doc_id, target_doc_id)
         
+    async def get_lines_for_document(self, doc_id: UUID) -> List[DocumentLineORM]:
+        """
+        Получает полный список ORM-объектов строк для указанного документа.
+        Идеально подходит для полной переиндексации.
+        """
+        if not self.linerepo:
+            raise NotImplementedError("LineRepository is not configured.")
+        logger.debug(f"Fetching all lines for document {doc_id}")
+        return await self.linerepo.get_lines_for_document(doc_id)
         
 ######################## IMG
 
@@ -269,12 +308,188 @@ class DataClient:
         return await self.obj.list_all(limit, offset)
     
     
+######################## IMAGE
+    async def get_image_description(self, source_line_id: UUID) -> Optional[str]:
+        """
+        Получает текстовое описание для изображения, связанного со строкой-плейсхолдером.
+        Возвращает None, если описание еще не готово или не найдено.
+        """
+        if not self.imagerepo:
+            raise NotImplementedError("ImageRepository is not configured.")
+        logger.debug(f"Fetching image description for source line: {source_line_id}")
+        return await self.imagerepo.get_description_by_line_id(source_line_id)
+
+    async def get_document_images(self, doc_id: UUID) -> List[DocumentImageORM]:
+        """
+        Получает список всех записей об изображениях для указанного документа.
+        """
+        if not self.imagerepo:
+            raise NotImplementedError("ImageRepository is not configured.")
+        logger.debug(f"Fetching all images for document: {doc_id}")
+        return await self.imagerepo.get_images_by_doc_id(doc_id)
+
     
 ######################## CLI
-    async def get_user_by_username(self, username: str) -> Optional[UserORM]:
-        # Делегирует вызов в UserRepository
-        return await self.user_repo.get_by_username(username)
+    
+    async def create_user(self, email: str, plain_password: str) -> UserORM:
+        """Делегирует создание пользователя в UserRepository."""
+        if not self.user_repo:
+            raise NotImplementedError("UserRepository is not configured.")
+        return await self.user_repo.create_user(email, plain_password)
+
+
+    async def activate_user(self, user_id: UUID) -> UserORM:
+        """Активирует пользователя после верификации email."""
+        if not self.user_repo:
+            raise NotImplementedError("UserRepository is not configured.")
+        return await self.user_repo.update_user_status(user_id, "active")
 
     async def get_user_by_id(self, user_id: UUID) -> Optional[UserORM]:
-        # Делегирует вызов в UserRepository
+        """Делегирует поиск пользователя по ID в UserRepository."""
+        if not self.user_repo:
+            raise NotImplementedError("UserRepository is not configured.")
         return await self.user_repo.get_by_id(user_id)
+
+    async def get_user_by_email(self, email: str) -> Optional[UserORM]:
+        """Делегирует поиск пользователя по email в UserRepository."""
+        if not self.user_repo:
+            raise NotImplementedError("UserRepository is not configured.")
+        return await self.user_repo.get_by_email(email)
+    
+    
+######################## GROUP
+    
+    
+    async def create_group(self, group_data: GroupCreate) -> GroupInDB:
+        """Создает новую группу доступа."""
+        if not self.group_repo:
+            raise NotImplementedError("GroupRepository is not configured.")
+        orm = await self.group_repo.create_group(group_data)
+        return GroupInDB.model_validate(orm)
+
+    async def get_group(self, group_id: UUID, with_members: bool = False) -> GroupInDB | GroupWithMembers | None:
+        """Находит группу по ID. Если with_members=True, возвращает со списком участников."""
+        if not self.group_repo:
+            raise NotImplementedError("GroupRepository is not configured.")
+        orm = await self.group_repo.get_group_by_id(group_id, with_members)
+        if not orm:
+            return None
+        if with_members:
+            return GroupWithMembers.model_validate(orm)
+        return GroupInDB.model_validate(orm)
+
+    async def list_groups(self) -> list[GroupInDB]:
+        """Возвращает список всех групп доступа."""
+        if not self.group_repo:
+            raise NotImplementedError("GroupRepository is not configured.")
+        orms = await self.group_repo.list_groups()
+        return [GroupInDB.model_validate(o) for o in orms]
+    
+    async def add_user_to_group(self, user_id: UUID, group_id: UUID):
+        """Добавляет пользователя в группу."""
+        if not self.group_repo:
+            raise NotImplementedError("GroupRepository is not configured.")
+        await self.group_repo.add_user_to_group(user_id, group_id)
+
+    async def remove_user_from_group(self, user_id: UUID, group_id: UUID):
+        """Удаляет пользователя из группы."""
+        if not self.group_repo:
+            raise NotImplementedError("GroupRepository is not configured.")
+        await self.group_repo.remove_user_from_group(user_id, group_id)
+
+    async def get_user_groups(self, user_id: UUID) -> list[GroupInDB]:
+        """Возвращает список групп, в которых состоит пользователь."""
+        if not self.group_repo:
+            raise NotImplementedError("GroupRepository is not configured.")
+        orms = await self.group_repo.get_user_groups(user_id)
+        return [GroupInDB.model_validate(o) for o in orms]
+    
+######################## PAYMENTS
+    async def activate_subscription_from_payment(
+        self,
+        user_id: UUID,
+        plan_id: UUID,
+        billing_cycle: str,
+        gateway_transaction_id: str,
+        amount: float,
+        currency: str
+    ) -> SubscriptionORM:
+        """
+        Ключевой бизнес-метод. Собирает данные и вызывает транзакционный
+        метод в репозитории для активации подписки.
+        """
+        if not self.billing_repo:
+            raise NotImplementedError("BillingRepository is not configured.")
+
+        now = datetime.now(timezone.utc)
+        # Для более точного расчета используйте `relativedelta` из `dateutil`
+        if billing_cycle == 'monthly':
+            expires_at = now + timedelta(days=31)
+        elif billing_cycle == 'annually':
+            expires_at = now + timedelta(days=366)
+        else:
+            raise ValueError(f"Invalid billing cycle: {billing_cycle}")
+
+        payment_data = {
+            "amount": amount,
+            "currency": currency,
+            "status": "succeeded",
+            "payment_gateway": "stripe", # Пример
+            "gateway_transaction_id": gateway_transaction_id,
+        }
+        
+        subscription_data = {
+            "user_id": user_id,
+            "plan_id": plan_id,
+            "status": "active",
+            "started_at": now,
+            "expires_at": expires_at,
+            "billing_cycle": billing_cycle,
+        }
+
+        # Делегируем всю транзакционную работу в один метод репозитория
+        return await self.billing_repo.activate_subscription_transaction(
+            user_id, plan_id, payment_data, subscription_data
+        )
+        
+        
+        
+######################## PERMISSION
+    async def grant_read_permission(self, doc_id: UUID, user_id: UUID):
+        """Предоставляет пользователю право на чтение документа."""
+        if not self.permission_repo:
+            raise NotImplementedError("PermissionRepository is not configured.")
+        await self.permission_repo.grant_permission(doc_id, user_id, "read")
+
+    async def revoke_permission(self, doc_id: UUID, user_id: UUID):
+        """Отзывает все права пользователя на документ."""
+        if not self.permission_repo:
+            raise NotImplementedError("PermissionRepository is not configured.")
+        await self.permission_repo.revoke_permission(doc_id, user_id)
+
+    async def get_user_shared_doc_ids(self, user_id: UUID) -> List[UUID]:
+        """Возвращает список ID документов, расшаренных для пользователя."""
+        if not self.permission_repo:
+            raise NotImplementedError("PermissionRepository is not configured.")
+        return await self.permission_repo.get_user_shared_doc_ids(user_id)
+
+    # =================== НОВЫЕ МЕТОДЫ ДЛЯ ТЕГОВ ===================
+    
+######################## TEGS
+    async def add_tags_to_document(self, doc_id: UUID, tags: List[str], source: str = "manual"):
+        """Добавляет список тегов к документу."""
+        if not self.tag_repo:
+            raise NotImplementedError("TagRepository is not configured.")
+        await self.tag_repo.add_tags_to_document(doc_id, tags, source)
+        
+    async def get_document_tags(self, doc_id: UUID) -> List[TagORM]:
+        """Получает список тегов для документа."""
+        if not self.tag_repo:
+            raise NotImplementedError("TagRepository is not configured.")
+        return await self.tag_repo.get_document_tags(doc_id)
+
+    async def set_tag_vector(self, tag_id: UUID, vector: List[float]):
+        """Устанавливает вектор для тега."""
+        if not self.tag_repo:
+            raise NotImplementedError("TagRepository is not configured.")
+        await self.tag_repo.set_tag_vector(tag_id, vector)

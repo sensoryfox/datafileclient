@@ -5,10 +5,10 @@ from uuid import UUID
 from sqlalchemy import select, update, delete, insert, func, text
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
-from sensory_data_client.exceptions import DatabaseError
+from sensory_data_client.exceptions import DatabaseError, DocumentNotFoundError
 from sensory_data_client.models.document import DocumentInDB
-from sensory_data_client.db.document_orm import DocumentORM
-from sensory_data_client.db.storage_orm import StoredFileORM
+from sensory_data_client.db.documents.document_orm import DocumentORM
+from sensory_data_client.db.documents.storage_orm import StoredFileORM
 from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
 from sensory_data_client.db.base import get_session
 
@@ -45,6 +45,12 @@ class MetaDataRepository:
             res = await session.execute(select(DocumentORM).where(DocumentORM.id == doc_id))
             orm = res.scalar_one_or_none()
             return orm.to_pydantic() if orm else None
+        
+    async def get_orm(self, doc_id: UUID) -> Optional[DocumentORM]:
+        async for session in get_session(self._session_factory):
+            res = await session.execute(select(DocumentORM).where(DocumentORM.id == doc_id))
+            orm = res.scalar_one_or_none()
+            return orm if orm else None
 
     async def update(self, doc_id: UUID, patch: dict) -> Optional[DocumentInDB]:
         async for session in get_session(self._session_factory):
@@ -104,8 +110,45 @@ class MetaDataRepository:
             )
             result = await session.execute(stmt)
             return result.scalar_one_or_none()
+     
+    async def get_sync_status(self, doc_id: UUID) -> bool:
+        """
+        Эффективно запрашивает только флаг is_sync_enabled для документа.
+        Возвращает False, если документ не найден.
+        """
+        async for session in get_session(self._session_factory):
+            stmt = select(DocumentORM.is_sync_enabled).where(DocumentORM.id == doc_id)
+            result = await session.execute(stmt)
+            status = result.scalar_one_or_none()
+            return status if status is not None else False   
         
-        
+    async def set_sync_status(self, doc_id: UUID, is_enabled: bool) -> Optional[DocumentInDB]:
+        """
+        Обновляет флаг is_sync_enabled для документа и возвращает обновленный объект.
+        """
+        async for session in get_session(self._session_factory):
+            try:
+                stmt = (
+                    update(DocumentORM)
+                    .where(DocumentORM.id == doc_id)
+                    .values(is_sync_enabled=is_enabled)
+                    .returning(DocumentORM) # Возвращаем всю ORM-строку
+                )
+                result = await session.execute(stmt)
+                await session.commit()
+                
+                updated_orm = result.scalar_one_or_none()
+                if not updated_orm:
+                    # Если ничего не обновилось, значит документа нет
+                    raise DocumentNotFoundError(f"Document with id {doc_id} not found.")
+                
+                return updated_orm.to_pydantic()
+
+            except SQLAlchemyError as e:
+                await session.rollback()
+                logger.error(f"Failed to set sync status for doc {doc_id}: {e}")
+                raise DatabaseError(f"Failed to set sync status: {e}")
+
     async def list_all(self,
                        limit: int | None = None,
                        offset: int = 0) -> list[DocumentInDB]:

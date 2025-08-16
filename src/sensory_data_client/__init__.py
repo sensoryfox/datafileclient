@@ -11,6 +11,13 @@ from .repositories.pg_repositoryLine import LineRepository
 from .repositories.minio_repository import MinioRepository
 from .repositories.pg_repositoryObj import ObjectRepository
 from .repositories.pg_repositoryImage import ImageRepository 
+from .repositories.pg_repositoryUser import UserRepository 
+from .repositories.pg_repositoryGroup import GroupRepository
+from .repositories.pg_repositoryBilling import BillingRepository
+from .repositories.pg_repositoryPermission import PermissionRepository
+from .repositories.pg_repositoryTag import TagRepository
+
+    
 from .exceptions import *
 
 def create_data_client(config: Optional[DataClientConfig] = None) -> DataClient:
@@ -37,6 +44,11 @@ def create_data_client(config: Optional[DataClientConfig] = None) -> DataClient:
     meta_repo = MetaDataRepository(session_factory)
     obj_repo = ObjectRepository(session_factory)
     image_repo = ImageRepository(session_factory)
+    user_repo = UserRepository(session_factory)
+    group_repo = GroupRepository(session_factory)
+    billing_repo = BillingRepository(session_factory)
+    tag_repo = TagRepository(session_factory)
+    permission_repo: PermissionRepository | None = None,
 
     # 2. Создаем зависимость для MinIO.
     # Распаковываем словарь из Pydantic-модели прямо в конструктор. Элегантно!
@@ -48,7 +60,13 @@ def create_data_client(config: Optional[DataClientConfig] = None) -> DataClient:
         line_repo=line_repo,
         minio_repo=minio_repo,
         obj_repo=obj_repo,
-        image_repo=image_repo
+        image_repo=image_repo,
+        user_repo=user_repo,
+        group_repo=group_repo,
+        billing_repo=billing_repo,
+        tag_repo=tag_repo,
+        permission_repo=permission_repo
+        
     )
     return client
 

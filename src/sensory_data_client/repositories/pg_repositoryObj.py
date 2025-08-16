@@ -7,8 +7,8 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from sensory_data_client.exceptions import DatabaseError
 from sensory_data_client.models.document import DocumentInDB
-from sensory_data_client.db.document_orm import DocumentORM
-from sensory_data_client.db.storage_orm import StoredFileORM
+from sensory_data_client.db.documents.document_orm import DocumentORM
+from sensory_data_client.db.documents.storage_orm import StoredFileORM
 from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
 from sensory_data_client.db.base import get_session
 

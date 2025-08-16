@@ -1,7 +1,7 @@
 # Файл: sensory_data_client/db/triggers.py
 from sqlalchemy import DDL, event
-from .document_orm import DocumentORM
-from .documentLine_orm import DocumentLineORM
+from .documents.document_orm import DocumentORM
+from .documents.documentLine_orm import DocumentLineORM
 
 # --- Триггер для обновления поля 'edited' ---
 
@@ -106,7 +106,7 @@ BEGIN
     SELECT sf.extension INTO v_extension
     FROM documents d
     JOIN stored_files sf ON sf.id = d.stored_file_id
-    WHERE d.id = NEW.document_id;
+    WHERE d.id = NEW.doc_id;
 
     -- Если по какой-то причине расширение не найдено
     IF v_extension IS NULL THEN
@@ -117,15 +117,15 @@ BEGIN
     v_image_hash := regexp_replace(v_filename, '\\.[^.]+$', '', 'g');
 
     -- Собираем полный путь к объекту в MinIO
-    v_object_key := v_extension || '/' || replace(NEW.document_id::text, '-', '') || '/images/' || v_filename;
+    v_object_key := v_extension || '/' || replace(NEW.doc_id::text, '-', '') || '/images/' || v_filename;
 
     -- UPSERT: Вставляем новую запись или обновляем существующую.
     -- Это гарантирует, что для одной и той же картинки в документе будет только одна задача.
     -- Если парсер пересоздает строки, мы просто обновим ссылку на новую source_line_id.
     -- Также сбрасываем статус 'failed' для повторной попытки обработки.
-    INSERT INTO document_images (document_id, source_line_id, object_key, filename, image_hash, status, attempts)
-    VALUES (NEW.document_id, NEW.id, v_object_key, v_filename, v_image_hash, 'pending', 0)
-    ON CONFLICT (document_id, image_hash)
+    INSERT INTO document_images (doc_id, source_line_id, object_key, filename, image_hash, status, attempts)
+    VALUES (NEW.doc_id, NEW.id, v_object_key, v_filename, v_image_hash, 'pending', 0)
+    ON CONFLICT (doc_id, image_hash)
     DO UPDATE SET
         source_line_id = EXCLUDED.source_line_id,
         updated_at = now(),

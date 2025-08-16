@@ -12,8 +12,8 @@ class DocumentMetadata(BaseModel):
 class DocumentCreate(BaseModel):
     user_document_id: str
     name: str
-    owner_id: str
-    access_group_id: Optional[str] = None
+    owner_id: UUID
+    access_group_id: Optional[UUID] = None 
     metadata: Optional[DocumentMetadata] = None
 
 class DocumentInDB(DocumentCreate):
@@ -21,6 +21,7 @@ class DocumentInDB(DocumentCreate):
     created: datetime = Field(default_factory=lambda: datetime.now(tz=timezone.utc))
     edited: datetime = Field(default_factory=lambda: datetime.now(tz=timezone.utc))
     # Поля из связанной таблицы stored_files
+    is_sync_enabled: bool
     extension: str
     content_hash: str
     object_path: str

@@ -9,18 +9,13 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from .base import Base
+from sensory_data_client.db.base import Base
 
 class DocumentImageORM(Base):
     """
     Таблица для отслеживания статуса обработки изображений из документов.
     """
     __tablename__ = "document_images"
-    __table_args__ = (
-        UniqueConstraint("document_id", "image_hash", name="uq_document_image_hash"),
-        Index("ix_document_images_status", "status"),
-        Index("ix_document_images_doc_id", "document_id"),
-    )
 
     id: Mapped[UUID] = mapped_column(
         PG_UUID(as_uuid=True),
@@ -29,7 +24,7 @@ class DocumentImageORM(Base):
         default=uuid4
     )
     # Связи
-    document_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, index=True)
+    doc_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, index=True)
     source_line_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("document_lines.id", ondelete="SET NULL"), nullable=True, index=True)
 
     # Местоположение и идентификация
@@ -51,5 +46,11 @@ class DocumentImageORM(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    document = relationship("DocumentORM")
-    source_line = relationship("DocumentLineORM")
+    document: Mapped["DocumentORM"] = relationship("DocumentORM", back_populates="images")
+    source_line: Mapped["DocumentLineORM"] = relationship("DocumentLineORM", back_populates="images")
+    __table_args__ = (
+        UniqueConstraint("doc_id", "image_hash", name="uq_document_image_hash"),
+        Index("idx_document_images_status", "status"),
+        Index("idx_document_images_doc_id", "doc_id"),
+    )
+    

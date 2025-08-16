@@ -9,7 +9,7 @@ from sqlalchemy import update, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
 
-from sensory_data_client.db.documentImage_orm import DocumentImageORM
+from sensory_data_client.db.documents.documentImage_orm import DocumentImageORM
 from sensory_data_client.db.base import get_session
 from sensory_data_client.exceptions import DatabaseError
 
@@ -38,7 +38,7 @@ class ImageRepository:
         # Создаем ORM-объект. `default` и `server_default` из модели
         # для `status` и `attempts` будут использованы SQLAlchemy.
         new_task = DocumentImageORM(
-            document_id=doc_id,
+            doc_id=doc_id,
             object_key=object_key,
             filename=filename,
             image_hash=image_hash,
@@ -136,6 +136,37 @@ class ImageRepository:
                     DocumentImageORM.status.in_(['enqueued', 'processing']),
                     DocumentImageORM.updated_at < stalled_since
                 )
+            )
+            result = await session.execute(stmt)
+            return list(result.scalars().all())
+        
+    async def get_description_by_line_id(self, source_line_id: UUID) -> Optional[str]:
+        """
+        Находит самое свежее успешное описание для изображения,
+        связанного с указанной строкой (source_line_id).
+        """
+        async for session in get_session(self._session_factory):
+            stmt = (
+                select(DocumentImageORM.result_text)
+                .where(
+                    DocumentImageORM.source_line_id == source_line_id,
+                    DocumentImageORM.status == 'done'
+                )
+                .order_by(DocumentImageORM.processed_at.desc())
+                .limit(1)
+            )
+            result = await session.execute(stmt)
+            return result.scalar_one_or_none()
+        
+    async def get_images_by_doc_id(self, doc_id: UUID) -> List[DocumentImageORM]:
+        """
+        Возвращает список всех ORM-объектов изображений для указанного документа.
+        """
+        async for session in get_session(self._session_factory):
+            stmt = (
+                select(DocumentImageORM)
+                .where(DocumentImageORM.doc_id == doc_id)
+                .order_by(DocumentImageORM.created_at) # Сортируем для консистентности
             )
             result = await session.execute(stmt)
             return list(result.scalars().all())

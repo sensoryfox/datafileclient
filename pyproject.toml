@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sensory-data-client"  # Имя для PyPI
-version = "0.1.55"
+version = "0.1.72"
 description = "Asynchronous facade for PostgreSQL and MinIO for corporate semantic search systems."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -24,13 +24,14 @@ classifiers = [
 ]
 
 dependencies = [
+    "passlib",
     "sqlalchemy[asyncio]", # Явно указываем asyncio-совместимость
     "asyncpg",
     "minio",
     "pydantic",
     "pydantic-settings",
     "alembic",
-    "typer[all]", # Добавим rich для красивого вывода в CLI
+    "typer", # Добавим rich для красивого вывода в CLI
     "importlib-resources; python_version < '3.9'" # Для работы с файлами пакета в старых версиях Python
 ]
 

@@ -1,22 +1,19 @@
 from datetime import datetime
 from uuid import UUID, uuid4
-from typing import Optional
-
-from sqlalchemy import Index, Boolean
+from typing import Optional, List
+from sqlalchemy import Index, Boolean, text
 from sqlalchemy import String, DateTime, func, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy import ForeignKey
 
-from sensory_data_client.db.base import Base
+from sensory_data_client.db.base import Base, CreatedAt, UpdatedAt
 from sensory_data_client.models.document import DocumentInDB
-from .document_permissions import DocumentPermissionORM
+from sensory_data_client.db.documents.document_permissions import DocumentPermissionORM
+from sensory_data_client.db.tags.tag_orm import TagORM
 
 class DocumentORM(Base):
     __tablename__ = "documents"
-    __table_args__ = (
-        UniqueConstraint("owner_id", "user_document_id", name="uq_owner_user_document_id"),
-    )
 
     id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4) # ID на стороне сервера
     user_document_id: Mapped[str] = mapped_column(String, nullable=False) # ID на стороне клиента
@@ -35,23 +32,33 @@ class DocumentORM(Base):
 
     metadata_: Mapped[dict] = mapped_column("metadata", JSONB)
     
-    created: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
+    created: Mapped[CreatedAt]
+    edited: Mapped[UpdatedAt]
+    
+    is_sync_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"), comment="Флаг, разрешающий синхронизацию документа с Elasticsearch")
+    is_public: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, server_default=text("false"))
+    
+    permissions: Mapped[List["DocumentPermissionORM"]] = relationship(
+        back_populates="document", cascade="all, delete-orphan"
     )
-    edited: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    tags: Mapped[List["TagORM"]] = relationship(
+        secondary="document_tags", back_populates="documents", lazy="selectin"
     )
     
-    permissions = relationship(
-        "DocumentPermissionORM", 
-        back_populates="document",
-        cascade="all, delete-orphan"
+    owner: Mapped["UserORM"] = relationship("UserORM", back_populates="documents_owned")
+    access_group: Mapped[Optional["GroupORM"]] = relationship("GroupORM", back_populates="documents", lazy="joined")
+    stored_file: Mapped["StoredFileORM"] = relationship("StoredFileORM", back_populates="documents", lazy="joined")
+
+    lines: Mapped[list["DocumentLineORM"]] = relationship("DocumentLineORM", back_populates="document", cascade="all, delete-orphan")
+    images: Mapped[list["DocumentImageORM"]] = relationship("DocumentImageORM", back_populates="document", cascade="all, delete-orphan")
+    permissions: Mapped[list["DocumentPermissionORM"]] = relationship("DocumentPermissionORM", back_populates="document", cascade="all, delete-orphan")
+    
+    
+    __table_args__ = (
+        UniqueConstraint("owner_id", "user_document_id", name="uq_documents_owner_userdoc"),
+        Index("idx_documents_owner_id", "owner_id"),
+        Index("idx_documents_access_group_id", "access_group_id"),
     )
-    owner = relationship("UserORM")
-    access_group = relationship("GroupORM")
-    stored_file = relationship("StoredFileORM", lazy="joined")
-    lines = relationship("DocumentLineORM", back_populates="document",
-                         cascade="all, delete-orphan")
     
     def to_pydantic(self) -> DocumentInDB:
         """
@@ -71,8 +78,11 @@ class DocumentORM(Base):
             metadata=self.metadata_,
             created=self.created,
             edited=self.edited,
+            is_sync_enabled=self.is_sync_enabled,
             # Ключевые поля из связанной таблицы:
             extension=self.stored_file.extension,
             content_hash=self.stored_file.content_hash,
             object_path=self.stored_file.object_path
         )
+        
+        
