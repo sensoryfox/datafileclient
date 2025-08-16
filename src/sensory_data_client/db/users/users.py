@@ -53,9 +53,13 @@ class UserORM(Base):
         cascade="all, delete-orphan"
     )
     
-    groups: Mapped[list["GroupORM"]] = relationship(
-        "GroupORM", secondary="user_group_membership", back_populates="users"
+    memberships: Mapped[List["UserGroupMembershipORM"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
     )
+    groups: Mapped[List["GroupORM"]] = relationship(
+            secondary="user_group_membership",
+            viewonly=True 
+        )
     documents_owned: Mapped[list["DocumentORM"]] = relationship("DocumentORM", back_populates="owner")
     permissions: Mapped[list["DocumentPermissionORM"]] = relationship(
         "DocumentPermissionORM", back_populates="user", cascade="all, delete-orphan"

@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
 from .client import DataClient
 # Импортируем НОВЫЕ конфигурационные классы
-from .config import get_settings, DataClientConfig, PostgresConfig, MinioConfig
+from .config import get_settings, DataClientConfig, PostgresConfig, MinioConfig, ElasticsearchConfig
 from .repositories.pg_repositoryMeta import MetaDataRepository
 from .repositories.pg_repositoryLine import LineRepository
 from .repositories.minio_repository import MinioRepository
@@ -16,6 +16,7 @@ from .repositories.pg_repositoryGroup import GroupRepository
 from .repositories.pg_repositoryBilling import BillingRepository
 from .repositories.pg_repositoryPermission import PermissionRepository
 from .repositories.pg_repositoryTag import TagRepository
+from .repositories.es_repository import ElasticsearchRepository
 
     
 from .exceptions import *
@@ -34,7 +35,7 @@ def create_data_client(config: Optional[DataClientConfig] = None) -> DataClient:
     if config is None:
         # Получаем настройки только когда они нужны
         s = get_settings()
-        config = DataClientConfig(postgres=s.postgres, minio=s.minio)
+        config = DataClientConfig(postgres=s.postgres, minio=s.minio, elastic=s.elastic)
     
     # 1. Создаем зависимости для PostgreSQL, используя вложенный объект
     engine = create_async_engine(config.postgres.get_pg_dsn())
@@ -48,7 +49,8 @@ def create_data_client(config: Optional[DataClientConfig] = None) -> DataClient:
     group_repo = GroupRepository(session_factory)
     billing_repo = BillingRepository(session_factory)
     tag_repo = TagRepository(session_factory)
-    permission_repo: PermissionRepository | None = None,
+    permission_repo = PermissionRepository(session_factory)
+    es_repo = ElasticsearchRepository(config.elastic)
 
     # 2. Создаем зависимость для MinIO.
     # Распаковываем словарь из Pydantic-модели прямо в конструктор. Элегантно!
@@ -65,13 +67,14 @@ def create_data_client(config: Optional[DataClientConfig] = None) -> DataClient:
         group_repo=group_repo,
         billing_repo=billing_repo,
         tag_repo=tag_repo,
-        permission_repo=permission_repo
+        permission_repo=permission_repo,
+        elastic_repo=es_repo,
         
     )
     return client
 
 __all__ = [
     "DataClient", "create_data_client", 
-    "DataClientConfig", "PostgresConfig", "MinioConfig", 
+    "DataClientConfig", "PostgresConfig", "MinioConfig", "ElasticsearchConfig", 
     "DocumentNotFoundError", "DatabaseError", "MinioError"
 ]

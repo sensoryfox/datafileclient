@@ -4,6 +4,7 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
 
+    
 class DocumentMetadata(BaseModel):
     processing_status: Optional[str] = None
     image_object_paths: Optional[List[str]] = None

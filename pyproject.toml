@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sensory-data-client"  # Имя для PyPI
-version = "0.1.73"
+version = "0.1.76"
 description = "Asynchronous facade for PostgreSQL and MinIO for corporate semantic search systems."
 readme = "README.md"
 requires-python = ">=3.10"

@@ -14,11 +14,12 @@ from sensory_data_client.repositories import (MetaDataRepository,
                                             GroupRepository,
                                             BillingRepository, 
                                             PermissionRepository,   
-                                            TagRepository       
+                                            TagRepository,
+                                            ElasticsearchRepository     
                                             )
 
 from sensory_data_client.db import DocumentLineORM, TagORM, DocumentORM, StoredFileORM, DocumentImageORM, UserORM, SubscriptionORM
-from sensory_data_client.models import Line, DocumentCreate, DocumentInDB, GroupCreate, GroupInDB, GroupWithMembers
+from sensory_data_client.models import ESLine, Line, DocumentCreate, DocumentInDB, GroupCreate, GroupInDB, GroupWithMembers
 from sensory_data_client.exceptions import DocumentNotFoundError, DatabaseError, MinioError, NotFoundError 
 
 logger = logging.getLogger(__name__)
@@ -40,6 +41,7 @@ class DataClient:
         billing_repo: BillingRepository | None = None,
         permission_repo: PermissionRepository | None = None,
         tag_repo: TagRepository | None = None,
+        elastic_repo: ElasticsearchRepository | None = None,
     ):        
         self.metarepo = meta_repo
         self.linerepo = line_repo
@@ -51,6 +53,7 @@ class DataClient:
         self.billing_repo = billing_repo 
         self.permission_repo = permission_repo
         self.tag_repo = tag_repo
+        self.es = elastic_repo
 
     async def check_connections(self) -> dict[str, str]:
         """
@@ -493,3 +496,19 @@ class DataClient:
         if not self.tag_repo:
             raise NotImplementedError("TagRepository is not configured.")
         await self.tag_repo.set_tag_vector(tag_id, vector)
+        
+        
+######################## ELASTIC
+
+    async def get_lines_with_vectors_from_es(
+        self,
+        doc_id: UUID,
+        include_types: list[str] | None = None,
+        exclude_types: list[str] | None = None,
+        limit: int | None = None
+    ) -> list[ESLine]:
+        if not self.es:
+            raise NotImplementedError("ElasticsearchRepository is not configured.")
+        return await self.es.get_lines_with_vectors(
+            doc_id=doc_id, include_types=include_types, exclude_types=exclude_types, limit=limit
+        )

@@ -3,7 +3,7 @@
 import logging
 from uuid import UUID
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime, timedelta 
 from sqlalchemy import update, select
 from sqlalchemy.exc import SQLAlchemyError

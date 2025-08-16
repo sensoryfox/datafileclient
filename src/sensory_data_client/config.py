@@ -25,11 +25,24 @@ class MinioConfig(BaseModel):
     bucket: str = "documents"
     secure: bool = False
 
+
+class ElasticsearchConfig(BaseModel):
+    endpoint: str = Field("localhost:9200", description="http(s)://host:port")
+    username: str | None = "elastic"
+    password: str | None = "elastic"
+    api_key: str | None = None
+    verify_certs: bool = True
+    index_lines: str = "doc_lines_v1"
+    index_docs: str = "docs_v1"
+    request_timeout: float = 10.0
+    max_page_size: int = 1000
+
 # --- 3. Основной класс для явной передачи конфигурации ---
 # Теперь он состоит из двух вложенных объектов. Это и есть та "одна переменная", которую вы хотели.
 class DataClientConfig(BaseModel):
     postgres: PostgresConfig = Field(default_factory=PostgresConfig)
     minio: MinioConfig = Field(default_factory=MinioConfig)
+    elastic: ElasticsearchConfig | None = None
 
 # --- 4. Обновляем класс Settings для чтения из .env ---
 # Он тоже будет использовать вложенную структуру. Pydantic это умеет!
@@ -47,6 +60,7 @@ class Settings(BaseSettings):
 
     postgres: PostgresConfig = Field(default_factory=PostgresConfig)
     minio: MinioConfig = Field(default_factory=MinioConfig)
+    elastic: ElasticsearchConfig = Field(default_factory=ElasticsearchConfig)
 
 # --- ИСПРАВЛЕНО: Ленивая инициализация ---
 _cached_settings: Optional[Settings] = None

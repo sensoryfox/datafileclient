@@ -15,5 +15,5 @@ class UserGroupMembershipORM(Base):
 
     __table_args__ = (UniqueConstraint("user_id", "group_id", name="uq_user_group_membership"),)
 
-    user: Mapped["UserORM"] = relationship("UserORM")
-    group: Mapped["GroupORM"] = relationship("GroupORM")
+    user: Mapped["UserORM"] = relationship(back_populates="memberships")
+    group: Mapped["GroupORM"] = relationship(back_populates="memberships")

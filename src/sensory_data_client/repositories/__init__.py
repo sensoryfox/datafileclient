@@ -8,6 +8,7 @@ from .pg_repositoryGroup import GroupRepository
 from .pg_repositoryPermission import PermissionRepository
 from .pg_repositoryTag import TagRepository
 from .pg_repositoryBilling import BillingRepository
+from .es_repository import ElasticsearchRepository
 
 __all__ = [
     "MinioRepository", 
@@ -19,6 +20,7 @@ __all__ = [
     "GroupRepository",  
     "PermissionRepository",  
     "TagRepository",    
-    "BillingRepository"
+    "BillingRepository",
+    "ElasticsearchRepository"
     
 ]
