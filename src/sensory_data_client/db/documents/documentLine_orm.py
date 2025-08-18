@@ -2,7 +2,7 @@
 from datetime import datetime
 from uuid import UUID, uuid4
 from sqlalchemy import String, DateTime, ForeignKey, Text, UniqueConstraint, func, Index, Integer
-
+from typing import List, Optional
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy import Double
@@ -12,7 +12,7 @@ class DocumentLineORM(Base):
     __tablename__ = "document_lines"
     id:          Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True),
                                               primary_key=True, default=uuid4)
-    doc_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("documents.id"), nullable=False)
+    doc_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False)
     
     # --- Ключевые поля, соответствующие Pydantic-модели ---
     position: Mapped[int] = mapped_column(Integer, nullable=False) # Порядковый номер строки
@@ -33,7 +33,11 @@ class DocumentLineORM(Base):
 
     document: Mapped["DocumentORM"] = relationship("DocumentORM", back_populates="lines")
     images: Mapped[list["DocumentImageORM"]] = relationship("DocumentImageORM", back_populates="source_line")
-    
+    audio_meta: Mapped[Optional["AudioSentenceMetaORM"]] = relationship(
+        back_populates="line", # 'line' - это имя атрибута в AudioSentenceMetaORM
+        cascade="all, delete-orphan",
+        uselist=False # <-- Ключевой параметр для связи "один-к-одному"
+    )
 
     # --- Связи ---
     __table_args__ = (

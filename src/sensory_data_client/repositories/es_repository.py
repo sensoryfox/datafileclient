@@ -68,7 +68,7 @@ class ElasticsearchRepository:
         if exclude_types:
             must_filters.append({"bool": {"must_not": {"terms": {"block_type.keyword": exclude_types}}}})
 
-        sort = [{sort_by: "asc" if ascending else "desc"}, {"_id": "asc"}]
+        sort = [{sort_by: "asc" if ascending else "desc"}, {"_doc": "asc"}]
 
         while len(collected) < total_wanted:
             body = {

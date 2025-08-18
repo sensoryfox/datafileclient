@@ -10,6 +10,8 @@ class NotFoundError(DataClientError):
 
 class MinioError(DataClientError):
     pass
+class ESError(DataClientError):
+    pass
 
 
 class DocumentNotFoundError(DataClientError):

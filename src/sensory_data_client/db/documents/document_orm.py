@@ -6,12 +6,19 @@ from sqlalchemy import String, DateTime, func, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy import ForeignKey
+from sqlalchemy import Enum as PgEnum
+import enum
 
 from sensory_data_client.db.base import Base, CreatedAt, UpdatedAt
 from sensory_data_client.models.document import DocumentInDB
 from sensory_data_client.db.documents.document_permissions import DocumentPermissionORM
 from sensory_data_client.db.tags.tag_orm import TagORM
 
+class DocType(str, enum.Enum):
+    generic = "generic"
+    audio   = "audio"
+    video   = "video"
+    
 class DocumentORM(Base):
     __tablename__ = "documents"
 
@@ -38,6 +45,12 @@ class DocumentORM(Base):
     is_sync_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"), comment="Флаг, разрешающий синхронизацию документа с Elasticsearch")
     is_public: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, server_default=text("false"))
     
+    doc_type: Mapped[str] = mapped_column(
+        PgEnum(DocType, name="doc_type_enum"),
+        server_default="generic",
+        nullable=False
+    )
+    
     permissions: Mapped[List["DocumentPermissionORM"]] = relationship(
         back_populates="document", cascade="all, delete-orphan"
     )
@@ -51,8 +64,13 @@ class DocumentORM(Base):
 
     lines: Mapped[list["DocumentLineORM"]] = relationship("DocumentLineORM", back_populates="document", cascade="all, delete-orphan")
     images: Mapped[list["DocumentImageORM"]] = relationship("DocumentImageORM", back_populates="document", cascade="all, delete-orphan")
+
+    audio_meta: Mapped[List["AudioSentenceMetaORM"]] = relationship(
+        back_populates="document",
+        cascade="all, delete-orphan", 
+        lazy="selectin"
+    )
     permissions: Mapped[list["DocumentPermissionORM"]] = relationship("DocumentPermissionORM", back_populates="document", cascade="all, delete-orphan")
-    
     
     __table_args__ = (
         UniqueConstraint("owner_id", "user_document_id", name="uq_documents_owner_userdoc"),
@@ -79,7 +97,9 @@ class DocumentORM(Base):
             created=self.created,
             edited=self.edited,
             is_sync_enabled=self.is_sync_enabled,
+            is_public=self.is_public,
             # Ключевые поля из связанной таблицы:
+            doc_type=str(self.doc_type),
             extension=self.stored_file.extension,
             content_hash=self.stored_file.content_hash,
             object_path=self.stored_file.object_path

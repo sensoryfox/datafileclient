@@ -36,7 +36,14 @@ class ObjectRepository:
             # Обновляем объект document, чтобы он содержал все данные из БД
             await session.refresh(document)
             
-
+    async def delete_stored_file(self, stored_file_id: int) -> bool:
+        """Удаляет запись о физическом файле."""
+        async for session in get_session(self._session_factory):
+            stmt = delete(StoredFileORM).where(StoredFileORM.id == stored_file_id)
+            result = await session.execute(stmt)
+            await session.commit()
+            return result.rowcount > 0
+        
     async def list_all(self,
                                 limit: int | None = None,
                                 offset: int = 0) -> list[StoredFileORM]:

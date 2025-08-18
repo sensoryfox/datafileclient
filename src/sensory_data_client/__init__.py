@@ -17,6 +17,7 @@ from .repositories.pg_repositoryBilling import BillingRepository
 from .repositories.pg_repositoryPermission import PermissionRepository
 from .repositories.pg_repositoryTag import TagRepository
 from .repositories.es_repository import ElasticsearchRepository
+from .repositories.pg_repositoryAudioMeta import AudioRepository
 
     
 from .exceptions import *
@@ -51,6 +52,7 @@ def create_data_client(config: Optional[DataClientConfig] = None) -> DataClient:
     tag_repo = TagRepository(session_factory)
     permission_repo = PermissionRepository(session_factory)
     es_repo = ElasticsearchRepository(config.elastic)
+    audio_repo = AudioRepository(session_factory)
 
     # 2. Создаем зависимость для MinIO.
     # Распаковываем словарь из Pydantic-модели прямо в конструктор. Элегантно!
@@ -69,6 +71,7 @@ def create_data_client(config: Optional[DataClientConfig] = None) -> DataClient:
         tag_repo=tag_repo,
         permission_repo=permission_repo,
         elastic_repo=es_repo,
+        audio_repo=audio_repo,
         
     )
     return client

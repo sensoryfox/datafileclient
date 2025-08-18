@@ -8,7 +8,7 @@ from .users.user_group_membership import UserGroupMembershipORM
 from .documents.storage_orm import StoredFileORM
 
 # таблицы, которые от них зависят
-from .documents.document_orm import DocumentORM
+from .documents.document_orm import DocumentORM, DocType
 from .documents.documentLine_orm import DocumentLineORM
 from .documents.documentImage_orm import DocumentImageORM
 from .documents.document_permissions import DocumentPermissionORM
@@ -26,6 +26,7 @@ from . import triggers
 
 __all__ = [
     "Base",
+    "DocType",
     "UserORM",
     "GroupORM",
     "UserGroupMembershipORM",

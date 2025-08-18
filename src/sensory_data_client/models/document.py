@@ -15,6 +15,7 @@ class DocumentCreate(BaseModel):
     name: str
     owner_id: UUID
     access_group_id: Optional[UUID] = None 
+    
     metadata: Optional[DocumentMetadata] = None
 
 class DocumentInDB(DocumentCreate):
@@ -23,7 +24,9 @@ class DocumentInDB(DocumentCreate):
     edited: datetime = Field(default_factory=lambda: datetime.now(tz=timezone.utc))
     # Поля из связанной таблицы stored_files
     is_sync_enabled: bool
+    is_public: bool
     extension: str
+    doc_type: str
     content_hash: str
     object_path: str
 

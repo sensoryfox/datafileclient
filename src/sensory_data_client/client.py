@@ -15,13 +15,24 @@ from sensory_data_client.repositories import (MetaDataRepository,
                                             BillingRepository, 
                                             PermissionRepository,   
                                             TagRepository,
-                                            ElasticsearchRepository     
+                                            ElasticsearchRepository,
+                                            AudioRepository   
                                             )
 
-from sensory_data_client.db import DocumentLineORM, TagORM, DocumentORM, StoredFileORM, DocumentImageORM, UserORM, SubscriptionORM
-from sensory_data_client.models import ESLine, Line, DocumentCreate, DocumentInDB, GroupCreate, GroupInDB, GroupWithMembers
-from sensory_data_client.exceptions import DocumentNotFoundError, DatabaseError, MinioError, NotFoundError 
+from sensory_data_client.db import DocType, DocumentLineORM, TagORM, DocumentORM, StoredFileORM, DocumentImageORM, UserORM, SubscriptionORM
+from sensory_data_client.models import AudioSentenceIn, ESLine, Line, DocumentCreate, DocumentInDB, GroupCreate, GroupInDB, GroupWithMembers
+from sensory_data_client.exceptions import DocumentNotFoundError, DatabaseError, ESError, MinioError, NotFoundError 
 
+AUDIO_EXTS = ["wav","mp3","ogg","m4a","flac","aac","wma","alac","opus"]
+VIDEO_EXTS = ["mp4","mov","mkv","webm","avi"]
+def get_filetype(ext):
+    if ext in AUDIO_EXTS:
+        return DocType.audio
+    elif ext in VIDEO_EXTS:
+        return DocType.video
+    else:
+        return DocType.generic
+            
 logger = logging.getLogger(__name__)
 
 class DataClient:
@@ -42,6 +53,8 @@ class DataClient:
         permission_repo: PermissionRepository | None = None,
         tag_repo: TagRepository | None = None,
         elastic_repo: ElasticsearchRepository | None = None,
+        audio_repo: AudioRepository | None = None,
+        
     ):        
         self.metarepo = meta_repo
         self.linerepo = line_repo
@@ -54,6 +67,7 @@ class DataClient:
         self.permission_repo = permission_repo
         self.tag_repo = tag_repo
         self.es = elastic_repo
+        self.audio_repo = audio_repo
 
     async def check_connections(self) -> dict[str, str]:
         """
@@ -75,6 +89,13 @@ class DataClient:
             statuses["minio"] = "ok"
         except MinioError as e:
             statuses["minio"] = f"failed: {e}"
+            
+        # Elastic Check
+        try:
+            await self.es.check_connection()
+            statuses["elastic"] = "ok"
+        except ESError as e:
+            statuses["elastic"] = f"failed: {e}"
             
         return statuses
     
@@ -101,6 +122,8 @@ class DataClient:
         # 1. Считаем хэш и ищем существующий физический файл
         id_doc = uuid4()
         content_hash = hashlib.sha256(content).hexdigest()
+        ext = Path(file_name).suffix.lower().lstrip('.') or "bin"
+        doc_type = get_filetype(ext)
         logger.info(f"Uploading file '{file_name}' with hash {content_hash[:8]}...")
         
         existing = await self.metarepo.get_stored_file_by_hash(content_hash)
@@ -117,8 +140,9 @@ class DataClient:
                 owner_id=meta.owner_id,
                 access_group_id=meta.access_group_id,
                 metadata_=meta.metadata.model_dump(),
-                stored_file_id=existing.id
-            )
+                stored_file_id=existing.id,
+                doc_type=doc_type
+                )
             await self.metarepo.save(document_orm)
             return document_orm.to_pydantic()
 
@@ -145,7 +169,8 @@ class DataClient:
                     owner_id=meta.owner_id,
                     access_group_id=meta.access_group_id,
                     metadata_=meta.metadata.model_dump(),
-                    stored_file=stored_file_orm
+                    stored_file=stored_file_orm,
+                    doc_type=doc_type
                 )
 
                 # Шаг 3: Сохраняем оба объекта в одной транзакции
@@ -164,12 +189,30 @@ class DataClient:
             raise DocumentNotFoundError
         return await self.minio.get_object(doc.object_path)
 
+
     async def delete_file(self, doc_id: UUID):
-        doc = await self.metarepo.get(doc_id)
+        # 1. Получаем метаданные, включая путь к файлу и его ID
+        doc = await self.metarepo.get_orm(doc_id)
         if not doc:
-            raise DocumentNotFoundError
-        await self.minio.remove_object(doc.object_path)
+            raise DocumentNotFoundError(f"Document with id {doc_id} not found.")
+
+        stored_file_id = doc.stored_file_id
+        object_path = doc.stored_file.object_path # Предполагая, что связь подгружена
+
+        # 2. Удаляем запись о документе из БД. Каскад удалит строки, картинки и т.д.
+        # Это нужно делать в транзакции, чтобы быть уверенным в удалении.
         await self.metarepo.delete(doc_id)
+        
+        # 3. Проверяем, остались ли другие документы, ссылающиеся на этот файл
+        is_orphan = await self.metarepo.is_stored_file_orphan(stored_file_id)
+
+        # 4. Если ссылок не осталось, удаляем физический файл и запись о нем
+        if is_orphan:
+            logger.info(f"Stored file {stored_file_id} is now an orphan. Deleting object '{object_path}' and DB record.")
+            await self.minio.remove_object(object_path)
+            await self.obj.delete_stored_file(stored_file_id)
+        else:
+            logger.info(f"Document {doc_id} deleted. Stored file {stored_file_id} is still in use by other documents.")
     
     async def generate_download_url(self, doc_id: UUID, expires_in: int = 3600) -> str:
         """
@@ -184,6 +227,7 @@ class DataClient:
         return url
     
 ######################## DOC STATUS FOR ELASTIC
+
     async def is_sync_enabled(self, doc_id: UUID) -> bool:
         """Проверяет, включена ли для документа синхронизация с поисковым индексом."""
         if not self.metarepo:
@@ -197,6 +241,7 @@ class DataClient:
         return await self.metarepo.set_sync_status(doc_id, is_enabled)
     
 ######################## LINE
+
     async def save_document_lines(self, doc_id: UUID, lines: list[Line]):
         """Сохраняет разобранные строки документа в PostgreSQL."""
         logger.info(f"Saving {len(lines)} lines for document {doc_id}")
@@ -512,3 +557,9 @@ class DataClient:
         return await self.es.get_lines_with_vectors(
             doc_id=doc_id, include_types=include_types, exclude_types=exclude_types, limit=limit
         )
+        
+######################## AUDIO
+    async def save_audio_sentences(self, doc_id: UUID, sentences: list[AudioSentenceIn]) -> int:
+        if not self.audio_repo:
+            raise NotImplementedError("AudioMetaRepository is not configured.")
+        return await self.audio_repo.replace_audio_sentences_with_meta(doc_id, sentences)

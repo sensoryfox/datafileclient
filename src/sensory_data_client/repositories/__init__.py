@@ -9,18 +9,20 @@ from .pg_repositoryPermission import PermissionRepository
 from .pg_repositoryTag import TagRepository
 from .pg_repositoryBilling import BillingRepository
 from .es_repository import ElasticsearchRepository
+from .pg_repositoryAudioMeta import AudioRepository
 
 __all__ = [
     "MinioRepository", 
     "LineRepository", 
     "MetaDataRepository", 
     "ObjectRepository", 
+    "AudioRepository",
     "ImageRepository", 
     "UserRepository",
     "GroupRepository",  
     "PermissionRepository",  
     "TagRepository",    
     "BillingRepository",
-    "ElasticsearchRepository"
+    "ElasticsearchRepository",
     
 ]

@@ -1,7 +1,7 @@
 # sensory_data_client/db/document_permissions.py
 from uuid import UUID, uuid4
 from sqlalchemy import String, ForeignKey, Integer, UniqueConstraint
-from typing import List, Optional
+
 
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -17,7 +17,7 @@ class DocumentPermissionORM(Base):
     __tablename__ = "document_permissions"
     
     id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
-    doc_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False)
+    doc_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, primary_key=True)
     user_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     permission_level: Mapped[str] = mapped_column(String(50), nullable=False, default="read")
     created_at: Mapped[CreatedAt]

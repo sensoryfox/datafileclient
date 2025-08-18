@@ -149,6 +149,14 @@ class MetaDataRepository:
                 logger.error(f"Failed to set sync status for doc {doc_id}: {e}")
                 raise DatabaseError(f"Failed to set sync status: {e}")
 
+    async def is_stored_file_orphan(self, stored_file_id: int) -> bool:
+        """Проверяет, остались ли документы, ссылающиеся на данный StoredFile."""
+        async for session in get_session(self._session_factory):
+            stmt = select(func.count(DocumentORM.id)).where(DocumentORM.stored_file_id == stored_file_id)
+            result = await session.execute(stmt)
+            count = result.scalar_one()
+            return count == 0
+        
     async def list_all(self,
                        limit: int | None = None,
                        offset: int = 0) -> list[DocumentInDB]:
