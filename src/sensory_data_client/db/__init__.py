@@ -9,8 +9,10 @@ from .documents.storage_orm import StoredFileORM
 
 # таблицы, которые от них зависят
 from .documents.document_orm import DocumentORM, DocType
-from .documents.documentLine_orm import DocumentLineORM
-from .documents.documentImage_orm import DocumentImageORM
+from .documents.lines.documentLine_orm import DocumentLineORM
+from .documents.lines.imageLine_orm import ImageLineORM
+from .documents.lines.audioLine_orm import AudioLineORM
+from .documents.lines.rawline_orm import RawLineORM
 from .documents.document_permissions import DocumentPermissionORM
 
 from .tags.tag_orm import TagORM
@@ -31,8 +33,10 @@ __all__ = [
     "GroupORM",
     "UserGroupMembershipORM",
     "DocumentORM",
-    "DocumentImageORM",
+    "RawLineORM",
+    "ImageLineORM",
     "DocumentLineORM",
+    "AudioLineORM",
     "DocumentPermissionORM",
     "StoredFileORM",
     "TagORM",

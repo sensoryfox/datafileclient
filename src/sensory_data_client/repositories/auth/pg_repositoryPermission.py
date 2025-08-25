@@ -36,7 +36,7 @@ class PermissionRepository:
             permission_level=permission_level
         )
         
-        async for session in get_session(self._session_factory):
+        async with get_session(self._session_factory) as session:
             try:
                 # session.merge() атомарно вставит или обновит запись на основе
                 # ограничений уникальности, что идеально для идемпотентности.
@@ -56,7 +56,7 @@ class PermissionRepository:
             DocumentPermissionORM.doc_id == doc_id,
             DocumentPermissionORM.user_id == user_id
         )
-        async for session in get_session(self._session_factory):
+        async with get_session(self._session_factory) as session:
             try:
                 await session.execute(stmt)
                 await session.commit()
@@ -74,6 +74,6 @@ class PermissionRepository:
         stmt = select(DocumentPermissionORM.doc_id).where(
             DocumentPermissionORM.user_id == user_id
         )
-        async for session in get_session(self._session_factory):
+        async with get_session(self._session_factory) as session:
             result = await session.execute(stmt)
             return result.scalars().all()

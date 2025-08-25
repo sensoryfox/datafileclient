@@ -22,7 +22,7 @@ class GroupRepository:
     async def create_group(self, group_data: GroupCreate) -> GroupORM:
         """Создает новую группу."""
         new_group = GroupORM(**group_data.model_dump())
-        async for session in get_session(self._session_factory):
+        async with get_session(self._session_factory) as session:
             try:
                 session.add(new_group)
                 await session.commit()
@@ -38,7 +38,7 @@ class GroupRepository:
 
     async def get_group_by_id(self, group_id: UUID, with_members: bool = False) -> Optional[GroupORM]:
         """Находит группу по ID. Опционально подгружает ее участников."""
-        async for session in get_session(self._session_factory):
+        async with get_session(self._session_factory) as session:
             query = select(GroupORM).where(GroupORM.id == group_id)
             if with_members:
                 # selectinload - эффективный способ загрузить связанные объекты
@@ -49,13 +49,13 @@ class GroupRepository:
             
     async def list_groups(self) -> List[GroupORM]:
         """Возвращает список всех групп."""
-        async for session in get_session(self._session_factory):
+        async with get_session(self._session_factory) as session:
             result = await session.execute(select(GroupORM).order_by(GroupORM.name))
             return list(result.scalars().all())
 
     async def add_user_to_group(self, user_id: UUID, group_id: UUID) -> None:
         """Добавляет пользователя в группу."""
-        async for session in get_session(self._session_factory):
+        async with get_session(self._session_factory) as session:
             # SQLAlchemy 2.0 style: используем relationship для добавления
             group = await session.get(GroupORM, group_id, options=[selectinload(GroupORM.users)])
             if not group:
@@ -78,7 +78,7 @@ class GroupRepository:
     
     async def remove_user_from_group(self, user_id: UUID, group_id: UUID) -> None:
         """Удаляет пользователя из группы."""
-        async for session in get_session(self._session_factory):
+        async with get_session(self._session_factory) as session:
             group = await session.get(GroupORM, group_id, options=[selectinload(GroupORM.users)])
             if not group:
                 raise NotFoundError(f"Group with id {group_id} not found.")
@@ -98,7 +98,7 @@ class GroupRepository:
 
     async def get_user_groups(self, user_id: UUID) -> List[GroupORM]:
         """Получает все группы, в которых состоит пользователь."""
-        async for session in get_session(self._session_factory):
+        async with get_session(self._session_factory) as session:
             query = select(UserORM).where(UserORM.id == user_id).options(selectinload(UserORM.groups))
             user = (await session.execute(query)).scalar_one_or_none()
             if not user:

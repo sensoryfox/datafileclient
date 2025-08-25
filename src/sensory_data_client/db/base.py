@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import AsyncGenerator, Annotated
 from datetime import datetime
 
+from contextlib import asynccontextmanager
 from sqlalchemy import MetaData, func, DateTime
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase, mapped_column
@@ -21,6 +22,8 @@ class Base(DeclarativeBase):
 CreatedAt = Annotated[datetime, mapped_column(DateTime(timezone=True), server_default=func.now())]
 UpdatedAt = Annotated[datetime, mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())]
 
+
+@asynccontextmanager
 async def get_session(session_factory: async_sessionmaker[AsyncSession]) -> AsyncGenerator[AsyncSession, None]:
     async with session_factory() as session:
         try:

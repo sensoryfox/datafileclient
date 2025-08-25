@@ -12,10 +12,16 @@ class PostgresConfig(BaseModel):
     port: int = 5422
     db: str = "documents"
 
+    pool_size: int = 5
+    max_overflow: int = 5
+    pool_timeout: int = 30
+    pool_recycle: int = 1800
+    pool_pre_ping: bool  = True
+    application_name: str = "sensory_data_client"
+    
     def get_pg_dsn(self) -> str:
         """Собирает DSN для SQLAlchemy из полей этого объекта."""
         return f"postgresql+asyncpg://{self.user}:{self.password}@{self.host}:{self.port}/{self.db}"
-
 
 # --- 2. Создаем подкласс для настроек MinIO ---
 class MinioConfig(BaseModel):

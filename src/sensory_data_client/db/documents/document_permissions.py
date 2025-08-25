@@ -24,6 +24,6 @@ class DocumentPermissionORM(Base):
     
     __table_args__ = (UniqueConstraint("doc_id", "user_id", "permission_level", name="uq_document_permissions"),)
 
-    document: Mapped["DocumentORM"] = relationship("DocumentORM", back_populates="permissions")
-    user: Mapped["UserORM"] = relationship("UserORM", back_populates="permissions")
+    document: Mapped["DocumentORM"] = relationship(back_populates="permissions")
+    user: Mapped["UserORM"] = relationship(back_populates="permissions")
     

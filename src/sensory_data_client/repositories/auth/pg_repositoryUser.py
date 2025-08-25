@@ -39,7 +39,7 @@ class UserRepository:
             hashed_password=hashed_password,
             status=status
         )
-        async for session in get_session(self._session_factory):
+        async with get_session(self._session_factory) as session:
             try:
                 session.add(user)
                 await session.commit()
@@ -55,13 +55,13 @@ class UserRepository:
 
     async def get_by_id(self, user_id: UUID) -> Optional[UserORM]:
         """Находит пользователя по его UUID."""
-        async for session in get_session(self._session_factory):
+        async with get_session(self._session_factory) as session:
             result = await session.execute(select(UserORM).where(UserORM.id == user_id))
             return result.scalar_one_or_none()
 
     async def get_by_email(self, email: str) -> Optional[UserORM]:
         """Находит пользователя по email."""
-        async for session in get_session(self._session_factory):
+        async with get_session(self._session_factory) as session:
             result = await session.execute(select(UserORM).where(UserORM.email == email))
             return result.scalar_one_or_none()
         
@@ -71,7 +71,7 @@ class UserRepository:
         Обновляет статус пользователя (active, suspended и т.д.).
         Возвращает обновленный объект пользователя или None, если пользователь не найден.
         """
-        async for session in get_session(self._session_factory):
+        async with get_session(self._session_factory) as session:
             try:
                 stmt = (
                     update(UserORM)
@@ -96,7 +96,7 @@ class UserRepository:
         подписку и связанный с ней тарифный план.
         Это предотвращает N+1 запросы при проверке прав доступа.
         """
-        async for session in get_session(self._session_factory):
+        async with get_session(self._session_factory) as session:
             stmt = (
                 select(UserORM)
                 .where(UserORM.id == user_id)

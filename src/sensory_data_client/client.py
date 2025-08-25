@@ -5,6 +5,7 @@ from uuid import UUID, uuid4
 from typing import Optional, List
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
+
 from sensory_data_client.repositories import (MetaDataRepository, 
                                             ImageRepository, 
                                             LineRepository,
@@ -14,12 +15,13 @@ from sensory_data_client.repositories import (MetaDataRepository,
                                             GroupRepository,
                                             BillingRepository, 
                                             PermissionRepository,   
-                                            TagRepository,
                                             ElasticsearchRepository,
-                                            AudioRepository   
+                                            AudioRepository,
+                                            TagRepository,
+                                            AutotagRepository
                                             )
 
-from sensory_data_client.db import DocType, DocumentLineORM, TagORM, DocumentORM, StoredFileORM, DocumentImageORM, UserORM, SubscriptionORM
+from sensory_data_client.db import DocType, DocumentLineORM, ImageLineORM, TagORM, DocumentORM, StoredFileORM, UserORM, SubscriptionORM
 from sensory_data_client.models import AudioSentenceIn, ESLine, Line, DocumentCreate, DocumentInDB, GroupCreate, GroupInDB, GroupWithMembers
 from sensory_data_client.exceptions import DocumentNotFoundError, DatabaseError, ESError, MinioError, NotFoundError 
 
@@ -42,6 +44,7 @@ class DataClient:
 
     def __init__(
         self,
+        engine,
         meta_repo: MetaDataRepository | None = None,
         line_repo: LineRepository | None = None,
         minio_repo: MinioRepository | None = None,
@@ -51,11 +54,13 @@ class DataClient:
         group_repo: GroupRepository | None = None,
         billing_repo: BillingRepository | None = None,
         permission_repo: PermissionRepository | None = None,
-        tag_repo: TagRepository | None = None,
         elastic_repo: ElasticsearchRepository | None = None,
         audio_repo: AudioRepository | None = None,
+        tag_repo: TagRepository | None = None,
+        autotagrepo: AutotagRepository | None = None,
         
     ):        
+        self._engine = engine
         self.metarepo = meta_repo
         self.linerepo = line_repo
         self.minio = minio_repo
@@ -65,9 +70,10 @@ class DataClient:
         self.group_repo = group_repo
         self.billing_repo = billing_repo 
         self.permission_repo = permission_repo
-        self.tag_repo = tag_repo
         self.es = elastic_repo
         self.audio_repo = audio_repo
+        self.tag_repo = tag_repo
+        self.autotagrepo = autotagrepo
 
     async def check_connections(self) -> dict[str, str]:
         """
@@ -242,10 +248,10 @@ class DataClient:
     
 ######################## LINE
 
-    async def save_document_lines(self, doc_id: UUID, lines: list[Line]):
+    async def save_document_lines(self, doc_id: UUID, lines: list[Line], doc_type:DocType):
         """Сохраняет разобранные строки документа в PostgreSQL."""
         logger.info(f"Saving {len(lines)} lines for document {doc_id}")
-        await self.linerepo.save_lines(doc_id, lines)    
+        await self.linerepo.save_lines(doc_id, lines, doc_type)    
     
     async def update_lines(self, doc_id: UUID, block_id: str, new_content: str):
         """Обновляет markdown-строку, добавляя описание изображения."""
@@ -272,7 +278,6 @@ class DataClient:
     async def create_image_processing_task(
         self,
         doc_id: UUID,
-        object_key: str,
         filename: str,
         image_hash: str,
         source_line_id: Optional[UUID] = None
@@ -282,13 +287,12 @@ class DataClient:
         """
         return await self.imagerepo.create_task(
             doc_id=doc_id,
-            object_key=object_key,
             filename=filename,
             image_hash=image_hash,
             source_line_id=source_line_id
         )
         
-    async def claim_image_task(self, image_id: UUID) -> Optional[DocumentImageORM]:
+    async def claim_image_task(self, image_id: UUID) -> Optional[ImageLineORM]:
         """
         Атомарно захватывает задачу по обработке изображения.
         Возвращает ORM-объект задачи или None, если она уже взята в работу.
@@ -296,13 +300,14 @@ class DataClient:
         logger.info(f"Attempting to claim image processing task: {image_id}")
         return await self.imagerepo.claim_task(image_id)
     
-    async def mark_image_task_done(self, image_id: UUID, result_text: str, llm_model: str):
+    async def mark_image_task_done(self, image_id: UUID, result_text: str, ocr_text: str, llm_model: str):
         """Помечает задачу как успешно выполненную."""
         logger.info(f"Marking image task as done: {image_id}")
         await self.imagerepo.update_task_status(
             image_id,
             status='done',
             result_text=result_text,
+            ocr_text=ocr_text,
             llm_model=llm_model
         )
 
@@ -367,7 +372,7 @@ class DataClient:
         logger.debug(f"Fetching image description for source line: {source_line_id}")
         return await self.imagerepo.get_description_by_line_id(source_line_id)
 
-    async def get_document_images(self, doc_id: UUID) -> List[DocumentImageORM]:
+    async def get_document_images(self, doc_id: UUID) -> List[ImageLineORM]:
         """
         Получает список всех записей об изображениях для указанного документа.
         """
@@ -524,7 +529,7 @@ class DataClient:
     # =================== НОВЫЕ МЕТОДЫ ДЛЯ ТЕГОВ ===================
     
 ######################## TEGS
-    async def add_tags_to_document(self, doc_id: UUID, tags: List[str], source: str = "manual"):
+    async def add_tags_to_document(self, doc_id: UUID, tags: List[str], source: str = "auto"):
         """Добавляет список тегов к документу."""
         if not self.tag_repo:
             raise NotImplementedError("TagRepository is not configured.")
@@ -563,3 +568,9 @@ class DataClient:
         if not self.audio_repo:
             raise NotImplementedError("AudioMetaRepository is not configured.")
         return await self.audio_repo.replace_audio_sentences_with_meta(doc_id, sentences)
+    
+    async def aclose(self):
+        """Gracefully closes the database connection pool."""
+        if self._engine:
+            await self._engine.dispose()
+            logger.info("Database connection pool disposed.")

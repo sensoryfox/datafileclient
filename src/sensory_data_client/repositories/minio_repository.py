@@ -10,8 +10,20 @@ from sensory_data_client.utils.minio_async import run_io_bound
 from sensory_data_client.config import MinioConfig
 import urllib3 
 
+from functools import lru_cache
+
 logger = logging.getLogger(__name__)
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+@lru_cache(maxsize=1)
+def get_minio_client(endpoint, access_key, secret_key, secure, http_client=None):
+    return Minio(
+            endpoint=endpoint,
+            access_key=access_key,
+            secret_key=secret_key,
+            secure=secure,
+            http_client=http_client
+        )
 
 class MinioRepository:
     def __init__(self, settings: MinioConfig):
@@ -20,14 +32,11 @@ class MinioRepository:
             http_client = urllib3.PoolManager(
                 cert_reqs='CERT_NONE',
             )
-        print(settings)
-        self._client = Minio(
-            endpoint=settings.endpoint,
-            access_key=settings.accesskey,
-            secret_key=settings.secretkey,
-            secure=settings.secure,
-            http_client=http_client
-        )
+        self._client = get_minio_client(settings.endpoint, 
+                                        settings.accesskey, 
+                                        settings.secretkey, 
+                                        settings.secure,
+                                        http_client)
         self._bucket = settings.bucket
 
     async def _ensure_bucket(self):

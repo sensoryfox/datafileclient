@@ -55,7 +55,7 @@ class ElasticsearchRepository:
         if fields is None:
             fields = [
                 "line_id","doc_id","text_content","block_type","position",
-                "page_idx","sheet_name","hierarchy","vector","source_line_id",
+                "page_idx","hierarchy","vector","source_line_id",
             ]
         size = min(self._cfg.max_page_size, limit or self._cfg.max_page_size)
         collected: List[ESLine] = []
@@ -102,7 +102,6 @@ class ElasticsearchRepository:
                         block_type=src.get("block_type"),
                         position=src.get("position"),
                         page_idx=src.get("page_idx"),
-                        sheet_name=src.get("sheet_name"),
                         hierarchy=src.get("hierarchy"),
                         vector=src.get("vector"),
                         source_line_id=src.get("source_line_id"),

@@ -24,19 +24,19 @@ class BillingRepository:
 
     async def get_plan_by_id(self, plan_id: UUID) -> Optional[TariffPlanORM]:
         """Находит тарифный план по ID."""
-        async for session in get_session(self._session_factory):
+        async with get_session(self._session_factory) as session:
             return await session.get(TariffPlanORM, plan_id)
 
     async def list_active_plans(self) -> List[TariffPlanORM]:
         """Возвращает список всех активных (не архивных) тарифных планов."""
-        async for session in get_session(self._session_factory):
+        async with get_session(self._session_factory) as session:
             stmt = select(TariffPlanORM).where(TariffPlanORM.is_active == True).order_by(TariffPlanORM.price_monthly)
             result = await session.execute(stmt)
             return list(result.scalars().all())
 
     async def get_subscription_with_details(self, subscription_id: UUID) -> Optional[SubscriptionORM]:
         """Находит подписку и подгружает связанные с ней план и платежи."""
-        async for session in get_session(self._session_factory):
+        async with get_session(self._session_factory) as session:
             stmt = (
                 select(SubscriptionORM)
                 .where(SubscriptionORM.id == subscription_id)
@@ -51,7 +51,7 @@ class BillingRepository:
     async def find_expired_subscriptions(self) -> List[SubscriptionORM]:
         """Находит активные подписки, срок действия которых уже истек."""
         now = datetime.now()
-        async for session in get_session(self._session_factory):
+        async with get_session(self._session_factory) as session:
             stmt = (
                 select(SubscriptionORM)
                 .where(
@@ -64,7 +64,7 @@ class BillingRepository:
 
     async def update_subscription_status(self, subscription_id: UUID, new_status: str) -> Optional[SubscriptionORM]:
         """Обновляет статус подписки."""
-        async for session in get_session(self._session_factory):
+        async with get_session(self._session_factory) as session:
             try:
                 stmt = (
                     update(SubscriptionORM)
@@ -94,7 +94,7 @@ class BillingRepository:
         4. Связывает их друг с другом и с пользователем.
         5. Обновляет поле `current_subscription_id` у пользователя.
         """
-        async for session in get_session(self._session_factory):
+        async with get_session(self._session_factory) as session:
             try:
                 # Шаг 1: Получаем пользователя, чтобы обновить его
                 user = await session.get(UserORM, user_id)

@@ -1,7 +1,7 @@
 # Файл: sensory_data_client/db/triggers.py
 from sqlalchemy import DDL, event
 from .documents.document_orm import DocumentORM
-from .documents.documentLine_orm import DocumentLineORM
+from .documents.lines.documentLine_orm import DocumentLineORM
 
 # --- Триггер для обновления поля 'edited' ---
 
@@ -78,80 +78,79 @@ event.listen(DocumentORM.__table__, "after_create", create_notify_trigger_ddl.ex
 
 # 1. DDL для создания функции, которая парсит строку и создает задачу
 create_image_upsert_function_ddl = DDL("""
-CREATE OR REPLACE FUNCTION upsert_document_image_from_line()
+CREATE OR REPLACE FUNCTION upsert_image_details_from_raw_line()
 RETURNS trigger AS $$
 DECLARE
-    v_filename text;
-    v_extension text;
-    v_object_key text;
-    v_image_hash text;
-    v_image_id uuid;
+  v_filename   TEXT;
+  v_image_hash  TEXT;
+  v_extension  TEXT;
+  v_object_path TEXT;
 BEGIN
-    -- Работаем только если это строка с типом 'image_placeholder'
-    IF NEW.block_type IS NULL OR NEW.block_type <> 'image_placeholder' THEN
-        RETURN NEW;
-    END IF;
-
-    -- Извлекаем имя файла из markdown-разметки: ![...](filename.png)
-    -- Используем regexp_matches, который возвращает массив; берем первый элемент
-    SELECT (regexp_matches(NEW.content, '!\\[[^\\]]*\\]\\(([^)]+)\\)'))[1]
-    INTO v_filename;
-
-    -- Если имя файла не найдено, выходим
-    IF v_filename IS NULL OR length(v_filename) = 0 THEN
-        RETURN NEW;
-    END IF;
-
-    -- Находим расширение исходного документа (pdf, docx) для построения полного пути
-    SELECT sf.extension INTO v_extension
-    FROM documents d
-    JOIN stored_files sf ON sf.id = d.stored_file_id
-    WHERE d.id = NEW.doc_id;
-
-    -- Если по какой-то причине расширение не найдено
-    IF v_extension IS NULL THEN
-        v_extension := 'unknown';
-    END IF;
-
-    -- Хеш изображения = имя файла без расширения (для дедупликации)
-    v_image_hash := regexp_replace(v_filename, '\\.[^.]+$', '', 'g');
-
-    -- Собираем полный путь к объекту в MinIO
-    v_object_key := v_extension || '/' || replace(NEW.doc_id::text, '-', '') || '/images/' || v_filename;
-
-    -- UPSERT: Вставляем новую запись или обновляем существующую.
-    -- Это гарантирует, что для одной и той же картинки в документе будет только одна задача.
-    -- Если парсер пересоздает строки, мы просто обновим ссылку на новую source_line_id.
-    -- Также сбрасываем статус 'failed' для повторной попытки обработки.
-    INSERT INTO document_images (doc_id, source_line_id, object_key, filename, image_hash, status, attempts)
-    VALUES (NEW.doc_id, NEW.id, v_object_key, v_filename, v_image_hash, 'pending', 0)
-    ON CONFLICT (doc_id, image_hash)
-    DO UPDATE SET
-        source_line_id = EXCLUDED.source_line_id,
-        updated_at = now(),
-        -- Эта часть у вас уже идеальна, она сбрасывает failed задачи на pending
-        status = CASE WHEN document_images.status = 'failed' THEN 'pending' ELSE document_images.status END
-    RETURNING id INTO v_image_id;
-
-    -- Отправляем уведомление диспетчеру с ID созданной/обновленной задачи
-    PERFORM pg_notify('image_jobs', json_build_object('image_id', v_image_id::text)::text);
-
+  -- Только для блоков-картинок
+  IF NEW.block_type IS NULL OR NEW.block_type <> 'image_placeholder' THEN
     RETURN NEW;
+  END IF;
+
+  -- Извлекаем имя файла из markdown: ![...] (filename.png)
+  SELECT (regexp_matches(NEW.content, '!\\[[^\\]]*\\]\\(([^)]+)\\)'))[1]
+  INTO v_filename;
+
+  IF v_filename IS NULL OR length(v_filename) = 0 THEN
+    RETURN NEW;
+  END IF;
+
+  -- Получаем расширение исходного документа
+  SELECT sf.extension INTO v_extension
+  FROM documents d
+  JOIN stored_files sf ON sf.id = d.stored_file_id
+  WHERE d.id = NEW.doc_id;
+
+  v_extension := COALESCE(v_extension, 'bin');
+
+  -- Хеш = имя без расширения
+  v_image_hash := regexp_replace(v_filename, '\\.[^.]+$', '', 'g');
+
+  -- Собираем путь к объекту (не сохраняем в БД; только для нотификации/воркера)
+  v_object_path := v_extension || '/' || replace(NEW.doc_id::text, '-', '') || '/images/' || v_filename;
+
+  -- UPSERT метаданных в lines_image
+  INSERT INTO lines_image (line_id, doc_id, filename, image_hash, status, attempts)
+  VALUES (NEW.id, NEW.doc_id, v_filename, v_image_hash, 'pending', 0)
+  ON CONFLICT (line_id)
+  DO UPDATE SET
+    filename  = EXCLUDED.filename,
+    image_hash = EXCLUDED.image_hash,
+    updated_at = now(),
+    status   = CASE WHEN lines_image.status = 'failed' THEN 'pending' ELSE lines_image.status END;
+
+  -- Отправляем уведомление о задаче
+  PERFORM pg_notify(
+    'image_jobs',
+    json_build_object(
+      'image_id',  NEW.id::text,
+      'doc_id',   NEW.doc_id::text,
+      'filename',  v_filename,
+      'extension',  v_extension,
+      'object_path', v_object_path
+    )::text
+  );
+
+  RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 """)
 
 # 2. DDL для удаления старого триггера (для идемпотентности)
 drop_image_upsert_trigger_ddl = DDL("""
-    DROP TRIGGER IF EXISTS trg_document_lines_image_upsert ON document_lines;
+    DROP TRIGGER IF EXISTS trg_raw_lines_image_upsert ON raw_lines;
 """)
 
 # 3. DDL для создания нового триггера
 create_image_upsert_trigger_ddl = DDL("""
-    CREATE TRIGGER trg_document_lines_image_upsert
-    AFTER INSERT OR UPDATE OF block_type, content ON document_lines
+    CREATE TRIGGER trg_raw_lines_image_upsert
+    AFTER INSERT OR UPDATE OF block_type, content ON raw_lines
     FOR EACH ROW
-    EXECUTE FUNCTION upsert_document_image_from_line();
+    EXECUTE FUNCTION upsert_image_details_from_raw_line();
 """)
 # --- "Привязываем" все DDL к событию "after_create" для таблицы DocumentLineORM ---
 # SQLAlchemy выполнит их последовательно, один за другим.
@@ -163,3 +162,56 @@ event.listen(DocumentLineORM.__table__, "after_create", create_image_upsert_trig
 
 
 print("[sensory-data-client] Database triggers registered for DocumentORM.")
+
+
+
+# --- DDL для Autotag NOTIFY ---
+create_autotag_notify_function_ddl = DDL("""
+CREATE OR REPLACE FUNCTION notify_autotag_task()
+RETURNS trigger AS $$
+DECLARE
+    payload JSON;
+BEGIN
+    IF TG_OP = 'INSERT' THEN
+        IF COALESCE(NEW.status,'enqueued')::text = 'enqueued' THEN
+            payload := json_build_object(
+                'task_id', NEW.id::text,
+                'doc_id', NEW.doc_id::text,
+                'status', NEW.status
+            );
+            PERFORM pg_notify('autotag_tasks_channel', payload::text);
+        END IF;
+        RETURN NEW;
+    ELSIF TG_OP = 'UPDATE' THEN
+        IF COALESCE(NEW.status,'')::text = 'enqueued' AND COALESCE(OLD.status,'')::text <> 'enqueued' THEN
+            payload := json_build_object(
+                'task_id', NEW.id::text,
+                'doc_id', NEW.doc_id::text,
+                'status', NEW.status
+            );
+            PERFORM pg_notify('autotag_tasks_channel', payload::text);
+        END IF;
+        RETURN NEW;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+""")
+
+drop_autotag_notify_trigger_ddl = DDL("""
+DROP TRIGGER IF EXISTS trg_autotag_notify ON autotag_tasks;
+""")
+
+create_autotag_notify_trigger_ddl = DDL("""
+CREATE TRIGGER trg_autotag_notify
+AFTER INSERT OR UPDATE ON autotag_tasks
+FOR EACH ROW
+EXECUTE FUNCTION notify_autotag_task();
+""")
+
+# --- Регистрация обработчиков ---
+# Импортируем класс ORM (путь корректируйте под ваш пакет)
+from sensory_data_client.db.tags.autotag_task_orm import AutotagTaskORM
+event.listen(AutotagTaskORM.__table__, "after_create", create_autotag_notify_function_ddl.execute_if(dialect="postgresql"))
+event.listen(AutotagTaskORM.__table__, "after_create", drop_autotag_notify_trigger_ddl.execute_if(dialect="postgresql"))
+event.listen(AutotagTaskORM.__table__, "after_create", create_autotag_notify_trigger_ddl.execute_if(dialect="postgresql"))

@@ -29,7 +29,7 @@ class DocumentORM(Base):
     )
     
     name: Mapped[str] = mapped_column(String, nullable=False)
-    
+    #summary: Mapped[str] = mapped_column(String, nullable=False)
     # 'PRIVATE' - только владелец
     # 'GROUP' - доступ у группы, указанной в 'access_group_id'
     # 'SHARED' - доступ у явно перечисленных пользователей/групп в `permissions`
@@ -50,27 +50,41 @@ class DocumentORM(Base):
         server_default="generic",
         nullable=False
     )
-    
-    permissions: Mapped[List["DocumentPermissionORM"]] = relationship(
-        back_populates="document", cascade="all, delete-orphan"
-    )
+    stored_file: Mapped["StoredFileORM"] = relationship("StoredFileORM", back_populates="documents", lazy="joined")
     tags: Mapped[List["TagORM"]] = relationship(
         secondary="document_tags", back_populates="documents", lazy="selectin"
     )
     
     owner: Mapped["UserORM"] = relationship("UserORM", back_populates="documents_owned")
     access_group: Mapped[Optional["GroupORM"]] = relationship("GroupORM", back_populates="documents", lazy="joined")
-    stored_file: Mapped["StoredFileORM"] = relationship("StoredFileORM", back_populates="documents", lazy="joined")
-
-    lines: Mapped[list["DocumentLineORM"]] = relationship("DocumentLineORM", back_populates="document", cascade="all, delete-orphan")
-    images: Mapped[list["DocumentImageORM"]] = relationship("DocumentImageORM", back_populates="document", cascade="all, delete-orphan")
-
-    audio_meta: Mapped[List["AudioSentenceMetaORM"]] = relationship(
-        back_populates="document",
-        cascade="all, delete-orphan", 
-        lazy="selectin"
-    )
     permissions: Mapped[list["DocumentPermissionORM"]] = relationship("DocumentPermissionORM", back_populates="document", cascade="all, delete-orphan")
+    
+    raw_lines: Mapped[List["RawLineORM"]] = relationship(
+            back_populates="document",
+            cascade="all, delete-orphan",
+            order_by="RawLineORM.position",
+            lazy="select" 
+        )
+    
+    image_lines: Mapped[List["ImageLineORM"]] = relationship(
+        "ImageLineORM",
+        back_populates="document", # Обратная связь в ImageLineORM будет называться "document"
+        cascade="all, delete-orphan",
+        lazy="selectin" # `selectin` - отличный выбор для быстрой загрузки
+    )
+    audio_lines: Mapped[List["AudioLineORM"]] = relationship(
+        "AudioLineORM",
+        back_populates="document", # Обратная связь в ImageLineORM будет называться "document"
+        cascade="all, delete-orphan",
+        lazy="selectin" # `selectin` - отличный выбор для быстрой загрузки
+    )
+    document_lines: Mapped[List["DocumentLineORM"]] = relationship(
+        "DocumentLineORM",
+        back_populates="document", # Обратная связь в ImageLineORM будет называться "document"
+        cascade="all, delete-orphan",
+        lazy="selectin" # `selectin` - отличный выбор для быстрой загрузки
+    )
+ 
     
     __table_args__ = (
         UniqueConstraint("owner_id", "user_document_id", name="uq_documents_owner_userdoc"),
@@ -86,23 +100,12 @@ class DocumentORM(Base):
         if not self.stored_file:
             raise ValueError("Cannot convert to Pydantic: stored_file relationship not loaded.")
 
-        return DocumentInDB(
-            id=self.id,
-            user_document_id=self.user_document_id,
-            name=self.name,
-            owner_id=self.owner_id,
-            access_group=self.access_group,
-            access_group_id=self.access_group_id,
-            metadata=self.metadata_,
-            created=self.created,
-            edited=self.edited,
-            is_sync_enabled=self.is_sync_enabled,
-            is_public=self.is_public,
-            # Ключевые поля из связанной таблицы:
-            doc_type=str(self.doc_type),
-            extension=self.stored_file.extension,
-            content_hash=self.stored_file.content_hash,
-            object_path=self.stored_file.object_path
-        )
+        stored_file_data = {
+            "extension": self.stored_file.extension,
+            "content_hash": self.stored_file.content_hash,
+            "object_path": self.stored_file.object_path,
+        }
+
+        return DocumentInDB.model_validate({**self.__dict__, **stored_file_data})
         
         

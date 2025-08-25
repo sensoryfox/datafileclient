@@ -19,7 +19,7 @@ class ObjectRepository:
         self._session_factory = session_factory
 
     async def get_stored_file_by_hash(self, content_hash: str) -> StoredFileORM | None:
-        async for session in get_session(self._session_factory):
+        async with get_session(self._session_factory) as session:
             stmt = select(StoredFileORM).where(StoredFileORM.content_hash == content_hash)
             result = await session.execute(stmt)
             return result.scalar_one_or_none()
@@ -29,7 +29,7 @@ class ObjectRepository:
         Транзакционно сохраняет и физический файл, и логический документ.
         Используется, когда файл действительно новый.
         """
-        async for session in get_session(self._session_factory):
+        async with get_session(self._session_factory) as session:
             session.add(stored_file)
             session.add(document)
             await session.commit()
@@ -38,7 +38,7 @@ class ObjectRepository:
             
     async def delete_stored_file(self, stored_file_id: int) -> bool:
         """Удаляет запись о физическом файле."""
-        async for session in get_session(self._session_factory):
+        async with get_session(self._session_factory) as session:
             stmt = delete(StoredFileORM).where(StoredFileORM.id == stored_file_id)
             result = await session.execute(stmt)
             await session.commit()
@@ -51,7 +51,7 @@ class ObjectRepository:
         Возвращает список всех физически сохраненных файлов (StoredFileORM).
         Можно пагинировать через limit/offset.
         """
-        async for session in get_session(self._session_factory):
+        async with get_session(self._session_factory) as session:
             q = select(StoredFileORM).order_by(StoredFileORM.first_uploaded_at.desc()) \
                                    .offset(offset)
             if limit:
